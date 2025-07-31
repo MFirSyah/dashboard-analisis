@@ -37,6 +37,7 @@ def load_data_from_gsheets():
         }
         gc = gspread.service_account_from_dict(creds_dict)
         spreadsheet = gc.open_by_key("1hl7YPEPg4aaEheN5fBKk65YX3-KdkQBRHCJWhVr9kVQ")
+        
     except Exception as e:
         st.error(f"GAGAL KONEKSI KE GOOGLE SHEETS: {e}")
         st.warning("Pastikan 10 baris 'Secrets' sudah benar dan Google Sheet sudah di-share.")
@@ -51,9 +52,15 @@ def load_data_from_gsheets():
             elif "REKAP" in sheet_title.upper():
                 df_sheet = pd.DataFrame(sheet.get_all_records())
                 if df_sheet.empty: continue
+                
                 store_name_match = re.match(r"^(.*?) - REKAP", sheet_title, re.IGNORECASE)
                 df_sheet['Toko'] = store_name_match.group(1).strip() if store_name_match else "Toko Tak Dikenal"
-                df_sheet['Status'] = 'Tersedia' if "READY" in sheet_title.upper() else 'Habis'
+                
+                # --- PERBAIKAN 1: Mengenali "TERSEDIA" ---
+                if "TERSEDIA" in sheet_title.upper() or "READY" in sheet_title.upper():
+                    df_sheet['Status'] = 'Tersedia'
+                else:
+                    df_sheet['Status'] = 'Habis'
                 rekap_list_df.append(df_sheet)
     except Exception as e:
         st.error(f"Gagal memproses sheet: {e}. Periksa format data di Google Sheets.")
@@ -70,17 +77,16 @@ def load_data_from_gsheets():
     rekap_df.columns = [str(col).strip().upper() for col in rekap_df.columns]
     rekap_df.rename(columns={'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga'}, inplace=True)
     
-    # Logika Cerdas untuk Kolom BRAND dan STOK
     if 'BRAND' not in rekap_df.columns:
-        rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
+        if 'Nama Produk' in rekap_df.columns:
+            rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
     else:
         rekap_df['Brand'] = rekap_df['BRAND'].str.upper()
-    if 'STOK' not in rekap_df.columns: 
-        rekap_df['Stok'] = 'N/A'
+    if 'STOK' not in rekap_df.columns: rekap_df['Stok'] = 'N/A'
     
     required_cols = ['Tanggal', 'Nama Produk', 'Harga', 'Terjual per Bulan']
     if not all(col in rekap_df.columns for col in required_cols):
-        st.error(f"Kolom krusial hilang. Pastikan sheet REKAP memiliki: {required_cols}")
+        st.error(f"Kolom krusial hilang. Pastikan semua sheet REKAP memiliki: {required_cols}")
         return pd.DataFrame(), pd.DataFrame(), my_store_name
 
     rekap_df['Tanggal'] = pd.to_datetime(rekap_df['Tanggal'], errors='coerce', dayfirst=True)
@@ -90,7 +96,13 @@ def load_data_from_gsheets():
     
     for col in ['Harga', 'Terjual per Bulan']: rekap_df[col] = rekap_df[col].astype(int)
     rekap_df['Omzet'] = rekap_df['Harga'] * rekap_df['Terjual per Bulan']
-    rekap_df.drop_duplicates(subset=['Nama Produk', 'Toko', 'Tanggal'], inplace=True)
+    
+    # --- PERBAIKAN 2: Mencegah KeyError saat drop_duplicates ---
+    cols_for_dedup = ['Nama Produk', 'Toko', 'Tanggal']
+    existing_cols = [col for col in cols_for_dedup if col in rekap_df.columns]
+    if existing_cols:
+        rekap_df.drop_duplicates(subset=existing_cols, inplace=True)
+
     return rekap_df.sort_values('Tanggal'), database_df, my_store_name
 
 def get_smart_matches(query_product_info, competitor_df, score_cutoff=90):
@@ -133,7 +145,6 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
     
     tab1, tab2, tab3, tab4, tab5 = st.tabs([f"⭐ Analisis Toko Saya ({main_store})", "⚖️ Perbandingan Harga", "🏆 Analisis Brand Kompetitor", "📦 Status Stok Produk", "📈 Kinerja Penjualan"])
     
-    # --- TAB 1: ANALISIS TOKO SAYA ---
     with tab1:
         st.header(f"Analisis Kinerja Toko: {main_store}")
         
@@ -169,7 +180,6 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
         fig_brand_pie = px.pie(brand_sales, 'Brand', 'Terjual per Bulan', 'Top 6 Brand Terlaris')
         st.plotly_chart(fig_brand_pie, use_container_width=True)
 
-    # --- TAB 2: PERBANDINGAN HARGA ---
     with tab2:
         st.header(f"Perbandingan Produk '{main_store}' dengan Kompetitor")
         
@@ -212,7 +222,6 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
                     c2.metric("Status", match_info['Status'])
                     c3.metric("Stok", match_info['Stok'])
     
-    # --- TAB 3: ANALISIS BRAND KOMPETITOR ---
     with tab3:
         st.header("Analisis Brand di Toko Kompetitor")
         if competitor_df.empty:
@@ -234,7 +243,6 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
                 brand_detail = competitor_df[competitor_df['Brand'] == inspect_brand].sort_values("Terjual per Bulan", ascending=False)
                 st.dataframe(brand_detail[['Toko', 'Nama Produk', 'Terjual per Bulan', 'Harga']], use_container_width=True, hide_index=True)
     
-    # --- TAB 4: STATUS STOK PRODUK ---
     with tab4:
         st.header("Tren Status Stok Mingguan per Toko")
         df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time)
@@ -245,7 +253,6 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
         st.plotly_chart(fig_stock_trends, use_container_width=True)
         st.dataframe(stock_trends.set_index('Minggu'), use_container_width=True)
 
-    # --- TAB 5: KINERJA PENJUALAN ---
     with tab5:
         st.header("Analisis Kinerja Penjualan (Semua Toko)")
         df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time)
