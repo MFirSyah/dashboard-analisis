@@ -70,19 +70,21 @@ def load_data_from_gsheets():
     rekap_df.columns = [str(col).strip().upper() for col in rekap_df.columns]
     rekap_df.rename(columns={'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga'}, inplace=True)
     
+    # Logika Cerdas untuk Kolom BRAND dan STOK
     if 'BRAND' not in rekap_df.columns:
         rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
     else:
         rekap_df['Brand'] = rekap_df['BRAND'].str.upper()
-    if 'STOK' not in rekap_df.columns: rekap_df['Stok'] = 'N/A'
+    if 'STOK' not in rekap_df.columns: 
+        rekap_df['Stok'] = 'N/A'
     
     required_cols = ['Tanggal', 'Nama Produk', 'Harga', 'Terjual per Bulan']
     if not all(col in rekap_df.columns for col in required_cols):
         st.error(f"Kolom krusial hilang. Pastikan sheet REKAP memiliki: {required_cols}")
         return pd.DataFrame(), pd.DataFrame(), my_store_name
 
-    rekap_df['Tanggal'] = pd.to_datetime(rekap_df['Tanggal'], errors='coerce')
-    rekap_df['Harga'] = pd.to_numeric(rekap_df['Harga'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce')
+    rekap_df['Tanggal'] = pd.to_datetime(rekap_df['Tanggal'], errors='coerce', dayfirst=True)
+    rekap_df['Harga'] = pd.to_numeric(rekap_df['Harga'], errors='coerce')
     rekap_df['Terjual per Bulan'] = pd.to_numeric(rekap_df['Terjual per Bulan'], errors='coerce').fillna(0)
     rekap_df.dropna(subset=['Tanggal', 'Nama Produk', 'Harga'], inplace=True)
     
@@ -131,6 +133,7 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
     
     tab1, tab2, tab3, tab4, tab5 = st.tabs([f"⭐ Analisis Toko Saya ({main_store})", "⚖️ Perbandingan Harga", "🏆 Analisis Brand Kompetitor", "📦 Status Stok Produk", "📈 Kinerja Penjualan"])
     
+    # --- TAB 1: ANALISIS TOKO SAYA ---
     with tab1:
         st.header(f"Analisis Kinerja Toko: {main_store}")
         
@@ -145,8 +148,8 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
                     if score >= 95: _rekap_df.loc[index, 'Kategori'] = db_map[match]
                 return _rekap_df
             
-            my_store_rekap_df_cat = fuzzy_merge_categories(main_store_df.copy(), db_df)
-            category_sales = my_store_rekap_df_cat.groupby('Kategori')['Terjual per Bulan'].sum().reset_index()
+            main_store_df_cat = fuzzy_merge_categories(main_store_df.copy(), db_df)
+            category_sales = main_store_df_cat.groupby('Kategori')['Terjual per Bulan'].sum().reset_index()
             
             col1, col2 = st.columns([1,2])
             sort_order_cat = col1.radio("Urutkan:", ["Terlaris", "Kurang Laris"], horizontal=True, key="cat_sort")
@@ -155,9 +158,7 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
             cat_sales_sorted = category_sales.sort_values('Terjual per Bulan', ascending=(sort_order_cat == "Kurang Laris")).head(top_n_cat)
             fig_cat = px.bar(cat_sales_sorted, 'Kategori', 'Terjual per Bulan', title=f'Top {top_n_cat} Kategori', text_auto=True)
             st.plotly_chart(fig_cat, use_container_width=True)
-        else:
-            st.info("Sheet 'DATABASE' dengan kolom 'NAMA' dan 'KATEGORI' dibutuhkan untuk analisis ini.")
-
+        
         st.subheader("2. Produk Terlaris")
         top_products = main_store_df.sort_values('Terjual per Bulan', ascending=False).head(15)[['Nama Produk', 'Terjual per Bulan', 'Omzet']]
         top_products['Omzet'] = top_products['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
@@ -168,6 +169,7 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
         fig_brand_pie = px.pie(brand_sales, 'Brand', 'Terjual per Bulan', 'Top 6 Brand Terlaris')
         st.plotly_chart(fig_brand_pie, use_container_width=True)
 
+    # --- TAB 2: PERBANDINGAN HARGA ---
     with tab2:
         st.header(f"Perbandingan Produk '{main_store}' dengan Kompetitor")
         
@@ -177,19 +179,24 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
         weekly_summary['Pertumbuhan Omzet (WoW)'] = weekly_summary['Omzet'].pct_change().apply(format_wow_growth)
         st.dataframe(weekly_summary, use_container_width=True, hide_index=True)
 
-        st.subheader("2. Detail Perbandingan Produk (Data Terbaru)")
+        st.subheader("2. Detail Produk di Toko Anda (Data Terbaru)")
         latest_date = main_store_df['Tanggal'].max()
         main_store_latest = main_store_df[main_store_df['Tanggal'] == latest_date]
-        cols_to_show = ['Nama Produk', 'Harga', 'Status']
-        if 'Stok' in main_store_latest.columns: cols_to_show.append('Stok')
+        cols_to_show = ['Nama Produk', 'Harga', 'Status', 'Stok']
         st.dataframe(main_store_latest[cols_to_show], use_container_width=True, hide_index=True)
         
         st.subheader("3. Pilih Produk untuk Dibandingkan")
         selected_product = st.selectbox("Pilih produk:", sorted(main_store_latest['Nama Produk'].unique()))
         if selected_product:
             product_info = main_store_latest[main_store_latest['Nama Produk'] == selected_product].iloc[0]
-            st.metric(f"Harga di {main_store}", f"Rp {product_info['Harga']:,.0f}")
             
+            col1, col2, col3 = st.columns(3)
+            col1.metric(f"Harga di {main_store}", f"Rp {product_info['Harga']:,.0f}")
+            col2.metric(f"Status", product_info['Status'])
+            col3.metric(f"Stok", product_info['Stok'])
+
+            st.markdown("---")
+            st.markdown(f"**Perbandingan di Toko Kompetitor:**")
             competitor_latest = competitor_df[competitor_df['Tanggal'] == latest_date]
             matches = get_smart_matches(product_info, competitor_latest, score_cutoff=accuracy_cutoff)
             if not matches:
@@ -198,8 +205,14 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
                 for product, score in matches:
                     match_info = competitor_latest[competitor_latest['Nama Produk'] == product].iloc[0]
                     price_diff = match_info['Harga'] - product_info['Harga']
-                    st.metric(f"Harga di {match_info['Toko']} (Kemiripan: {score}%)", f"Rp {match_info['Harga']:,.0f}", delta=f"Rp {price_diff:,.0f}")
+                    
+                    st.markdown(f"**Toko: {match_info['Toko']}** (Kemiripan Nama: {score}%)")
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Harga Kompetitor", f"Rp {match_info['Harga']:,.0f}", delta=f"Rp {price_diff:,.0f}")
+                    c2.metric("Status", match_info['Status'])
+                    c3.metric("Stok", match_info['Stok'])
     
+    # --- TAB 3: ANALISIS BRAND KOMPETITOR ---
     with tab3:
         st.header("Analisis Brand di Toko Kompetitor")
         if competitor_df.empty:
@@ -221,6 +234,7 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
                 brand_detail = competitor_df[competitor_df['Brand'] == inspect_brand].sort_values("Terjual per Bulan", ascending=False)
                 st.dataframe(brand_detail[['Toko', 'Nama Produk', 'Terjual per Bulan', 'Harga']], use_container_width=True, hide_index=True)
     
+    # --- TAB 4: STATUS STOK PRODUK ---
     with tab4:
         st.header("Tren Status Stok Mingguan per Toko")
         df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time)
@@ -229,8 +243,9 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
         
         fig_stock_trends = px.line(stock_trends_melted, 'Minggu', 'Jumlah Produk', color='Toko', line_dash='Tipe Stok', markers=True, title='Jumlah Produk Tersedia vs. Habis per Minggu')
         st.plotly_chart(fig_stock_trends, use_container_width=True)
-        st.dataframe(stock_trends, use_container_width=True, hide_index=True)
+        st.dataframe(stock_trends.set_index('Minggu'), use_container_width=True)
 
+    # --- TAB 5: KINERJA PENJUALAN ---
     with tab5:
         st.header("Analisis Kinerja Penjualan (Semua Toko)")
         df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time)
@@ -253,7 +268,7 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
                 
                 if not weekly_summary.empty:
                     weekly_summary['Rata-Rata Terjual Harian'] = round(weekly_summary['total_terjual'] / weekly_summary['jumlah_hari'])
-                    st.dataframe(weekly_summary, use_container_width=True, hide_index=True)
+                    st.dataframe(weekly_summary.rename(columns={'Minggu': 'Mulai Minggu', 'total_omzet': 'Total Omzet', 'total_terjual': 'Total Terjual', 'avg_harga': 'Rata-Rata Harga'}), use_container_width=True, hide_index=True)
                 else:
                     st.info(f"Tidak ada data untuk {store} pada rentang ini.")
 else:
