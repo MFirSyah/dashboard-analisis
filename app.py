@@ -132,12 +132,10 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
     main_store = st.sidebar.selectbox("Pilih Toko Utama:", all_stores, index=all_stores.index(my_store_name_from_db) if my_store_name_from_db in all_stores else 0)
     min_date, max_date = df['Tanggal'].min().date(), df['Tanggal'].max().date()
     
-    # --- PERBAIKAN TypeError PADA INPUT TANGGAL ---
     selected_date_range = st.sidebar.date_input("Rentang Tanggal:", [min_date, max_date], min_value=min_date, max_value=max_date)
     if len(selected_date_range) != 2:
         st.warning("Silakan pilih rentang tanggal yang valid."); st.stop()
     start_date, end_date = selected_date_range
-    # --- AKHIR PERBAIKAN ---
     
     accuracy_cutoff = st.sidebar.slider("Tingkat Akurasi Pencocokan (%)", 80, 100, 91, 1)
 
@@ -184,7 +182,8 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
 
         st.subheader("3. Distribusi Penjualan Brand (Top 6)")
         brand_sales = main_store_df.groupby('Brand')['Terjual per Bulan'].sum().nlargest(6).reset_index()
-        fig_brand_pie = px.pie(brand_sales, 'Brand', 'Terjual per Bulan', 'Top 6 Brand Terlaris')
+        # --- PERBAIKAN: Menggunakan keyword arguments untuk px.pie ---
+        fig_brand_pie = px.pie(brand_sales, names='Brand', values='Terjual per Bulan', title='Top 6 Brand Terlaris')
         st.plotly_chart(fig_brand_pie, use_container_width=True)
 
     with tab2:
@@ -242,7 +241,8 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
             with col1:
                 st.subheader("2. Distribusi Brand Terlaris (Top 6)")
                 top_6_brands = competitor_df.groupby('Brand')['Terjual per Bulan'].sum().nlargest(6).reset_index()
-                fig_pie_comp = px.pie(top_6_brands, 'Brand', 'Terjual per Bulan', 'Top 6 Brand di Semua Kompetitor')
+                # --- PERBAIKAN: Menggunakan keyword arguments untuk px.pie ---
+                fig_pie_comp = px.pie(top_6_brands, names='Brand', values='Terjual per Bulan', title='Top 6 Brand di Semua Kompetitor')
                 st.plotly_chart(fig_pie_comp, use_container_width=True)
             with col2:
                 st.subheader("3. Analisis Mendalam per Brand")
