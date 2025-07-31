@@ -1,6 +1,7 @@
 # ===================================================================================
 #  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL
 #  Dibuat oleh: Firman & Asisten AI Gemini
+#  Tanggal: 1 Agustus 2025
 #  Metode Koneksi: Aman (gspread + st.secrets)
 # ===================================================================================
 
@@ -32,17 +33,17 @@ def load_data_from_gsheets():
     database_df = pd.DataFrame()
     
     try:
-        sheet_names = [sheet.title for sheet in spread.sheets]
-        for sheet_name in sheet_names:
-            if "DATABASE" in sheet_name.upper():
-                database_df = spread.sheet_to_df(index=None, sheet=sheet_name)
-            elif "REKAP" in sheet_name.upper():
-                df_sheet = spread.sheet_to_df(index=None, sheet=sheet_name, header_rows=1)
+        for sheet in spread.sheets:
+            sheet_title = sheet.title
+            if "DATABASE" in sheet_title.upper():
+                database_df = spread.sheet_to_df(index=None, sheet=sheet)
+            elif "REKAP" in sheet_title.upper():
+                df_sheet = spread.sheet_to_df(index=None, sheet=sheet, header_rows=1)
                 if df_sheet.empty: continue
                 
-                store_name_match = re.match(r"^(.*?) - REKAP", sheet_name, re.IGNORECASE)
+                store_name_match = re.match(r"^(.*?) - REKAP", sheet_title, re.IGNORECASE)
                 df_sheet['Toko'] = store_name_match.group(1).strip() if store_name_match else "Toko Tidak Dikenal"
-                df_sheet['Status'] = 'Tersedia' if "READY" in sheet_name.upper() else 'Habis'
+                df_sheet['Status'] = 'Tersedia' if "READY" in sheet_title.upper() else 'Habis'
                 rekap_list_df.append(df_sheet)
     except Exception as e:
         st.error(f"Gagal memproses salah satu sheet: {e}. Periksa format data di Google Sheets Anda.")
@@ -53,22 +54,21 @@ def load_data_from_gsheets():
         return pd.DataFrame(), pd.DataFrame(), None
 
     rekap_df = pd.concat(rekap_list_df, ignore_index=True)
-    my_store_name = "DB KLIK"
+    my_store_name = "DB KLIK" # Nama Toko Utama Anda
     if not database_df.empty:
         database_df.columns = [str(col).strip().upper() for col in database_df.columns]
     
-    column_mapping = {'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga', 'STOK': 'Stok'}
+    column_mapping = {'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga'}
     rekap_df.rename(columns=column_mapping, inplace=True)
     
     if 'BRAND' not in rekap_df.columns:
-        st.info("Info: Kolom 'BRAND' tidak ditemukan, brand diekstrak dari 'Nama Produk'.")
-        rekap_df['Brand'] = rekap_df['Nama Produk'].str.split().str[0].str.upper()
+        rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
     else:
         rekap_df['Brand'] = rekap_df['BRAND'].str.upper()
     
-    if 'Stok' not in rekap_df.columns:
+    if 'STOK' not in rekap_df.columns:
         rekap_df['Stok'] = 'N/A'
-        
+    
     required_cols = ['Tanggal', 'Nama Produk', 'Harga', 'Terjual per Bulan']
     if not all(col in rekap_df.columns for col in required_cols):
         st.error(f"Kolom krusial tidak ditemukan. Pastikan sheet REKAP memiliki: {required_cols}")
@@ -86,25 +86,25 @@ def load_data_from_gsheets():
     rekap_df.drop_duplicates(subset=['Nama Produk', 'Toko', 'Tanggal'], inplace=True)
     return rekap_df.sort_values('Tanggal'), database_df, my_store_name
 
-def get_smart_matches(query_product_info, competitor_df, score_cutoff=90):
+def get_smart_matches(query_product_info, competitor_df, limit=5, score_cutoff=90):
     query_name = query_product_info['Nama Produk']
     competitor_product_list = competitor_df['Nama Produk'].tolist()
-    candidates = process.extract(query_name, competitor_product_list, limit=10, scorer=fuzz.token_set_ratio)
-    return [match for match in candidates if match[1] >= score_cutoff]
+    candidates = process.extract(query_name, competitor_product_list, limit=20, scorer=fuzz.token_set_ratio)
+    return [match for match in candidates if match[1] >= score_cutoff][:limit]
 
 # --- INTERFACE DASHBOARD UTAMA---
 st.title("📊 Dashboard Analisis Penjualan & Kompetitor")
-st.sidebar.image("https://i.imgur.com/i4S5T5A.png", width=100) # Ganti dengan URL logo Anda
 st.sidebar.header("Kontrol Analisis")
 
 if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
-    df, db_df, my_store_name = load_data_from_gsheets()
+    df, db_df, my_store_name_from_db = load_data_from_gsheets()
     if df.empty:
+        st.error("Gagal memuat data. Periksa pesan error di atas dan pengaturan Anda.")
         st.stop()
         
     st.sidebar.header("Filter & Pengaturan")
     all_stores_list = sorted(df['Toko'].unique())
-    main_store = st.sidebar.selectbox("Pilih Toko Utama:", options=all_stores_list, index=all_stores_list.index(my_store_name) if my_store_name in all_stores_list else 0)
+    main_store_for_comp = st.sidebar.selectbox("Pilih Toko Utama:", options=all_stores_list, index=all_stores_list.index(my_store_name_from_db) if my_store_name_from_db in all_stores_list else 0)
     min_date, max_date = df['Tanggal'].min().date(), df['Tanggal'].max().date()
     start_date = st.sidebar.date_input("Tanggal Mulai:", min_date, min_value=min_date, max_value=max_date)
     end_date = st.sidebar.date_input("Tanggal Akhir:", max_date, min_value=start_date, max_value=max_date)
@@ -115,78 +115,92 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
         st.error("Tidak ada data pada rentang tanggal yang dipilih.")
         st.stop()
     
-    main_store_df = df_filtered[df_filtered['Toko'] == main_store].copy()
-    competitor_df = df_filtered[df_filtered['Toko'] != main_store].copy()
+    main_store_df = df_filtered[df_filtered['Toko'] == main_store_for_comp].copy()
+    competitor_df = df_filtered[df_filtered['Toko'] != main_store_for_comp].copy()
     
     tab_titles = []
-    if not db_df.empty: tab_titles.append(f"⭐ Analisis Toko Saya ({main_store})")
+    if not db_df.empty: tab_titles.append(f"⭐ Analisis Toko Saya ({main_store_for_comp})")
     tab_titles.extend(["⚖️ Perbandingan Harga", "🏆 Analisis Brand Kompetitor", "📦 Status Stok Produk", "📈 Kinerja Penjualan"])
+    created_tabs = st.tabs(tab_titles)
     
-    tabs = st.tabs(tab_titles)
-    tab_idx = 0
+    tab_index = 0
 
-    # --- TAB 1: ANALISIS TOKO SAYA ---
     if not db_df.empty:
-        with tabs[tab_idx]:
-            st.header(f"Analisis Kinerja Toko: {main_store}")
-            my_store_rekap_df = main_store_df.copy()
+        with created_tabs[tab_index]:
+            st.header(f"Analisis Kinerja Toko: {main_store_for_comp}")
+            my_store_rekap_df = df_filtered[df_filtered['Toko'] == main_store_for_comp].copy()
 
             st.subheader("1. Kategori Produk Terlaris")
-            # ... (Implementasi lengkap)
+            if not db_df.empty and 'KATEGORI' in db_df.columns:
+                @st.cache_data
+                def fuzzy_merge_categories(_rekap_df, _database_df):
+                    _rekap_df['Kategori'] = 'Lainnya'
+                    db_map = _database_df.set_index('NAMA')['KATEGORI']
+                    for index, row in _rekap_df.iterrows():
+                        match, score = process.extractOne(row['Nama Produk'], db_map.index, scorer=fuzz.token_set_ratio)
+                        if score >= 95:
+                            _rekap_df.loc[index, 'Kategori'] = db_map[match]
+                    return _rekap_df
+                
+                my_store_rekap_df = fuzzy_merge_categories(my_store_rekap_df, db_df)
+                category_sales = my_store_rekap_df.groupby('Kategori')['Terjual per Bulan'].sum().reset_index()
+
+                col1, col2 = st.columns(2)
+                sort_order = col1.radio("Urutkan:", ["Terlaris ke Terendah", "Terendah ke Terlaris"], horizontal=True)
+                top_n_cat = col2.number_input("Tampilkan Top:", min_value=1, max_value=len(category_sales), value=10)
+                
+                is_desc = sort_order == "Terlaris ke Terendah"
+                category_sales_sorted = category_sales.sort_values(by='Terjual per Bulan', ascending=not is_desc).head(top_n_cat)
+                
+                fig_cat = px.bar(category_sales_sorted, x='Kategori', y='Terjual per Bulan', title=f'Top {top_n_cat} Kategori Terlaris', text_auto=True)
+                st.plotly_chart(fig_cat, use_container_width=True)
+            else:
+                st.warning("Sheet DATABASE atau kolom KATEGORI tidak ditemukan.")
 
             st.subheader("2. Produk Terlaris")
-            # ... (Implementasi lengkap)
-            
-            st.subheader("3. 6 Brand Terlaris")
-            # ... (Implementasi lengkap)
-        tab_idx += 1
+            top_products = my_store_rekap_df.sort_values(by='Terjual per Bulan', ascending=False).head(15)[['Nama Produk', 'Terjual per Bulan', 'Omzet']]
+            top_products['Omzet'] = top_products['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
+            st.dataframe(top_products, use_container_width=True, hide_index=True)
 
-    # --- TAB 2: PERBANDINGAN HARGA ---
-    with tabs[tab_idx]:
+            st.subheader("3. Distribusi Penjualan Brand (Top 6)")
+            brand_sales = my_store_rekap_df.groupby('Brand')['Terjual per Bulan'].sum().nlargest(6).reset_index()
+            fig_brand_pie = px.pie(brand_sales, names='Brand', values='Terjual per Bulan', title='Top 6 Brand Terlaris')
+            st.plotly_chart(fig_brand_pie, use_container_width=True)
+        tab_index += 1
+
+    with created_tabs[tab_index]:
         st.header(f"Perbandingan dengan Kompetitor")
-        
+
         st.subheader("1. Ringkasan Kinerja Mingguan")
-        # ... (Implementasi lengkap)
+        # ... (Implementasi Tabel Kinerja dengan WoW)
 
         st.subheader("2. Detail Perbandingan Produk")
-        # ... (Implementasi lengkap)
-
+        latest_date = main_store_df['Tanggal'].max()
+        main_store_latest = main_store_df[main_store_df['Tanggal'] == latest_date]
+        cols_to_show = ['Nama Produk', 'Harga', 'Status']
+        if 'Stok' in main_store_latest.columns and main_store_latest['Stok'].nunique() > 1:
+            cols_to_show.append('Stok')
+        st.dataframe(main_store_latest[cols_to_show], use_container_width=True, hide_index=True)
+        
         st.subheader("3. Pilih Produk untuk Dibandingkan")
-        # ... (Implementasi lengkap)
-    tab_idx += 1
+        # ... (Implementasi Selectbox Produk)
+    tab_index += 1
 
-    # --- TAB 3: ANALISIS BRAND KOMPETITOR ---
-    with tabs[tab_idx]:
+    with created_tabs[tab_index]:
         st.header("Analisis Brand di Toko Kompetitor")
-        
-        st.subheader("1. Peringkat Penjualan Brand")
-        # ... (Implementasi lengkap)
-
-        st.subheader("2. Distribusi Brand Terlaris (Top 6)")
-        # ... (Implementasi lengkap)
-        
-        st.subheader("3. Analisis Mendalam per Brand")
-        # ... (Implementasi lengkap)
-    tab_idx += 1
-
-    # --- TAB 4: STATUS STOK PRODUK ---
-    with tabs[tab_idx]:
-        st.header("Tren Status Stok Mingguan (Semua Toko)")
-        
-        # ... (Implementasi lengkap)
-    tab_idx += 1
-
-    # --- TAB 5: KINERJA PENJUALAN ---
-    with tabs[tab_idx]:
+        # ... (Implementasi Analisis Brand)
+    tab_index += 1
+    
+    with created_tabs[tab_index]:
+        st.header("Tren Status Stok Mingguan")
+        # ... (Implementasi Line Chart Stok)
+    tab_index += 1
+    
+    with created_tabs[tab_index]:
         st.header("Analisis Kinerja Penjualan (Semua Toko)")
-        
-        st.subheader("1. Grafik Omzet Mingguan")
-        # ... (Implementasi lengkap)
-        
-        st.subheader("2. Tabel Ringkasan Kinerja Mingguan")
-        # ... (Implementasi lengkap)
-    tab_idx += 1
-
+        # ... (Implementasi Kinerja Penjualan)
+    tab_index += 1
+    
 else:
     st.info("👈 Klik tombol di sidebar untuk menarik data dan memulai analisis.")
     st.stop()
