@@ -18,30 +18,20 @@ st.set_page_config(layout="wide", page_title="Dashboard Analisis")
 
 @st.cache_data(show_spinner="Mengambil data terbaru dari Google Sheets...", ttl=300)
 def load_data_from_gsheets():
-    """
-    Menghubungkan ke Google Sheets menggunakan metode st.secrets yang stabil,
-    memuat semua data, dan memprosesnya menjadi DataFrame yang siap dianalisis.
-    """
     try:
         creds_dict = {
-            "type": st.secrets["gcp_type"],
-            "project_id": st.secrets["gcp_project_id"],
-            "private_key_id": st.secrets["gcp_private_key_id"],
-            "private_key": st.secrets["gcp_private_key_raw"].replace('\\n', '\n'),
-            "client_email": st.secrets["gcp_client_email"],
-            "client_id": st.secrets["gcp_client_id"],
-            "auth_uri": st.secrets["gcp_auth_uri"],
-            "token_uri": st.secrets["gcp_token_uri"],
+            "type": st.secrets["gcp_type"], "project_id": st.secrets["gcp_project_id"],
+            "private_key_id": st.secrets["gcp_private_key_id"], "private_key": st.secrets["gcp_private_key_raw"].replace('\\n', '\n'),
+            "client_email": st.secrets["gcp_client_email"], "client_id": st.secrets["gcp_client_id"],
+            "auth_uri": st.secrets["gcp_auth_uri"], "token_uri": st.secrets["gcp_token_uri"],
             "auth_provider_x509_cert_url": st.secrets["gcp_auth_provider_x509_cert_url"],
             "client_x509_cert_url": st.secrets["gcp_client_x509_cert_url"]
         }
         gc = gspread.service_account_from_dict(creds_dict)
         spreadsheet = gc.open_by_key("1hl7YPEPg4aaEheN5fBKk65YX3-KdkQBRHCJWhVr9kVQ")
-        
     except Exception as e:
         st.error(f"GAGAL KONEKSI KE GOOGLE SHEETS: {e}")
-        st.warning("Pastikan 10 baris 'Secrets' sudah benar dan Google Sheet sudah di-share.")
-        return pd.DataFrame(), pd.DataFrame(), None
+        st.warning("Pastikan 10 baris 'Secrets' sudah benar dan Google Sheet sudah di-share."); return pd.DataFrame(), pd.DataFrame(), None
 
     rekap_list_df, database_df = [], pd.DataFrame()
     try:
@@ -52,18 +42,15 @@ def load_data_from_gsheets():
             elif "REKAP" in sheet_title.upper():
                 df_sheet = pd.DataFrame(sheet.get_all_records())
                 if df_sheet.empty: continue
-                
                 store_name_match = re.match(r"^(.*?) - REKAP", sheet_title, re.IGNORECASE)
                 df_sheet['Toko'] = store_name_match.group(1).strip() if store_name_match else "Toko Tak Dikenal"
-                
                 if "TERSEDIA" in sheet_title.upper() or "READY" in sheet_title.upper():
                     df_sheet['Status'] = 'Tersedia'
                 else:
                     df_sheet['Status'] = 'Habis'
                 rekap_list_df.append(df_sheet)
     except Exception as e:
-        st.error(f"Gagal memproses sheet: {e}. Periksa format data di Google Sheets.")
-        return pd.DataFrame(), pd.DataFrame(), None
+        st.error(f"Gagal memproses sheet: {e}. Periksa format data di Google Sheets."); return pd.DataFrame(), pd.DataFrame(), None
 
     if not rekap_list_df:
         st.error("Tidak ada data REKAP yang dimuat."); return pd.DataFrame(), pd.DataFrame(), None
@@ -73,27 +60,20 @@ def load_data_from_gsheets():
     if not database_df.empty:
         database_df.columns = [str(col).strip().upper() for col in database_df.columns]
     
-    # Standardisasi nama kolom menjadi HURUF BESAR
+    # --- PERBAIKAN UTAMA: URUTAN PEMROSESAN KOLOM ---
+    # 1. Standarkan nama kolom dari sumber (UPPERCASE)
     rekap_df.columns = [str(col).strip().upper() for col in rekap_df.columns]
     
-    # --- PERBAIKAN KeyError: Menstandardisasi kolom 'Toko' dan lainnya ---
-    column_mapping = {
-        'NAMA': 'Nama Produk', 
-        'TERJUAL/BLN': 'Terjual per Bulan', 
-        'TANGGAL': 'Tanggal', 
-        'HARGA': 'Harga',
-        'TOKO': 'Toko', # Mengubah TOKO (uppercase) menjadi Toko (title case)
-        'STATUS': 'Status',
-        'BRAND': 'Brand',
-        'STOK': 'Stok'
-    }
+    # 2. Rename kolom sumber ke nama yang kita inginkan (Title Case)
+    column_mapping = {'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga'}
     rekap_df.rename(columns=column_mapping, inplace=True)
-    
-    # Logika Cerdas untuk Kolom BRAND dan STOK (jika tidak ada di mapping)
-    if 'Brand' not in rekap_df.columns and 'Nama Produk' in rekap_df.columns:
-        rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
-    if 'Stok' not in rekap_df.columns: 
-        rekap_df['Stok'] = 'N/A'
+
+    if 'BRAND' not in rekap_df.columns:
+        if 'Nama Produk' in rekap_df.columns:
+            rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
+    else:
+        rekap_df['Brand'] = rekap_df['BRAND'].str.upper()
+    if 'STOK' not in rekap_df.columns: rekap_df['Stok'] = 'N/A'
     
     required_cols = ['Tanggal', 'Nama Produk', 'Harga', 'Terjual per Bulan']
     if not all(col in rekap_df.columns for col in required_cols):
@@ -108,7 +88,10 @@ def load_data_from_gsheets():
     for col in ['Harga', 'Terjual per Bulan']: rekap_df[col] = rekap_df[col].astype(int)
     rekap_df['Omzet'] = rekap_df['Harga'] * rekap_df['Terjual per Bulan']
     
-    rekap_df.drop_duplicates(subset=['Nama Produk', 'Toko', 'Tanggal'], inplace=True, keep='last')
+    cols_for_dedup = ['Nama Produk', 'Toko', 'Tanggal']
+    existing_cols = [col for col in cols_for_dedup if col in rekap_df.columns]
+    if existing_cols:
+        rekap_df.drop_duplicates(subset=existing_cols, inplace=True, keep='last')
 
     return rekap_df.sort_values('Tanggal'), database_df, my_store_name
 
