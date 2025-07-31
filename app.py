@@ -1,4 +1,4 @@
-# KODE FINAL LENGKAP - app.py (dengan perbaikan autentikasi gspread)
+# KODE FINAL LENGKAP - app.py (Perbaikan Otentikasi gspread)
 
 import streamlit as st
 import pandas as pd
@@ -7,44 +7,42 @@ import plotly.express as px
 import re
 import gspread
 from gspread_pandas import Spread
-from google.oauth2.service_account import Credentials # <-- Tambahan import
 
 st.set_page_config(layout="wide", page_title="Dashboard Analisis")
 
 # --- FUNGSI-FUNGSI UTAMA ---
 
+# Fungsi ini mengambil data dari Google Sheets dan memprosesnya
 @st.cache_data(show_spinner="Mengambil data terbaru dari Google Sheets...", ttl=600)
 def load_data_from_gsheets():
     try:
-        # ---> BLOK AUTENTIKASI BARU YANG DIPERBAIKI
-        # Menentukan lingkup (scope) otorisasi
-        scopes = [
-            "https.www.googleapis.com/auth/spreadsheets",
-            "https.www.googleapis.com/auth/drive"
-        ]
-        # Membuat objek kredensial dari st.secrets
-        creds = Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"],
-            scopes=scopes
-        )
-        # Mengotorisasi client gspread
-        client = gspread.authorize(creds)
-        # ---> AKHIR BLOK AUTENTIKASI BARU
-
-        # Ganti dengan NAMA PERSIS file Google Sheets Anda
+        # --- PERUBAHAN OTENTIKASI DIMULAI DI SINI ---
+        # Perbaikan: Menggunakan gspread untuk otentikasi dari dict, lalu memberikannya ke gspread-pandas
         spreadsheet_name = "NAMA_FILE_GOOGLE_SHEETS_ANDA"
-        spread = Spread(spreadsheet_name, client=client)
+        
+        # 1. Otentikasi menggunakan gspread langsung dari st.secrets
+        gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+        
+        # 2. Buka spreadsheet menggunakan koneksi yang sudah terotentikasi
+        spreadsheet = gc.open(spreadsheet_name)
+        
+        # 3. Buat objek Spread dari gspread-pandas menggunakan spreadsheet yang sudah dibuka
+        spread = Spread(spread=spreadsheet)
+        # --- AKHIR DARI PERUBAHAN OTENTIKASI ---
 
+    except gspread.exceptions.SpreadsheetNotFound:
+        st.error(f"Spreadsheet dengan nama '{spreadsheet_name}' tidak ditemukan. Pastikan nama sudah benar dan sudah dibagikan ke email service account.")
+        return pd.DataFrame(), pd.DataFrame(), None
     except Exception as e:
         st.error(f"Terjadi kesalahan saat menghubungkan ke Google Sheets: {e}")
-        st.info("Pastikan Anda sudah mengatur 'Secrets' di Streamlit Cloud dengan benar dan nama file Google Sheets sudah tepat.")
+        st.info("Pastikan Anda sudah mengatur 'Secrets' di Streamlit Cloud dengan benar dan format penamaan sheet sudah sesuai.")
         return pd.DataFrame(), pd.DataFrame(), None
 
     rekap_list_df = []
     database_df = pd.DataFrame()
     my_store_name = None
 
-    # Loop melalui semua sheet di dalam file (tidak ada perubahan di sini)
+    # Loop melalui semua sheet di dalam file (tidak ada perubahan di bagian ini)
     for sheet in spread.sheets:
         sheet_title = sheet.title
         
@@ -81,7 +79,7 @@ def load_data_from_gsheets():
     if not rekap_list_df:
         return pd.DataFrame(), pd.DataFrame(), None
 
-    # --- Bagian pemrosesan data (sama seperti kode lama, tidak ada perubahan) ---
+    # --- Bagian pemrosesan data (tidak ada perubahan) ---
     rekap_df = pd.concat(rekap_list_df, ignore_index=True)
     column_mapping = {'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga'}
     rekap_df.rename(columns=column_mapping, inplace=True)
@@ -106,9 +104,7 @@ def load_data_from_gsheets():
     rekap_df.drop_duplicates(subset=['Nama Produk', 'Toko', 'Tanggal'], inplace=True)
     return rekap_df.sort_values('Tanggal'), database_df, my_store_name
 
-#
-# --- TIDAK ADA PERUBAHAN APAPUN PADA SEMUA FUNGSI DAN KODE DI BAWAH INI ---
-#
+# --- SEMUA FUNGSI LAINNYA DI BAWAH INI TIDAK ADA PERUBAHAN SAMA SEKALI ---
 
 def get_smart_matches(query_product_info, competitor_df, limit=5, score_cutoff=90):
     query_name = query_product_info['Nama Produk']
@@ -166,6 +162,7 @@ st.title("📊 Dashboard Analisis Penjualan & Kompetitor")
 
 st.sidebar.header("Kontrol Analisis")
 
+# Tombol untuk memulai analisis
 if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
     df, db_df, my_store_name_from_db = load_data_from_gsheets()
 
@@ -196,7 +193,7 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
     df_latest = df_filtered[df_filtered['Tanggal'] == latest_date_in_range].copy()
     main_store_df = df_filtered[df_filtered['Toko'] == main_store_for_comp].copy()
     competitor_df = df_filtered[df_filtered['Toko'] != main_store_for_comp].copy()
-
+    
     TABS = []
     if not db_df.empty and my_store_name_from_db:
         TABS.append(f"⭐ Analisis Toko Saya ({my_store_name_from_db})")
