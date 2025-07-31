@@ -18,7 +18,7 @@ def load_data_from_gsheets():
     try:
         # --- PERUBAHAN OTENTIKASI DIMULAI DI SINI ---
         # Perbaikan: Menggunakan gspread untuk otentikasi dari dict, lalu memberikannya ke gspread-pandas
-        spreadsheet_name = "DATA_REKAP"
+        spreadsheet_name = "https://docs.google.com/spreadsheets/d/1hl7YPEPg4aaEheN5fBKk65YX3-KdkQBRHCJWhVr9kVQ/edit?gid=1317374896#gid=1317374896"
         
         # 1. Otentikasi menggunakan gspread langsung dari st.secrets
         gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
