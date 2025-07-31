@@ -2,6 +2,7 @@
 #  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL
 #  Dibuat oleh: Firman & Asisten AI Gemini
 #  Metode Koneksi: Aman & Stabil (gspread + st.secrets individual)
+#  Logika Pemuatan: Berdasarkan daftar sheet yang spesifik
 # ===================================================================================
 
 import streamlit as st
@@ -33,22 +34,39 @@ def load_data_from_gsheets():
         st.error(f"GAGAL KONEKSI KE GOOGLE SHEETS: {e}")
         st.warning("Pastikan 10 baris 'Secrets' sudah benar dan Google Sheet sudah di-share."); return pd.DataFrame(), pd.DataFrame(), None
 
+    # --- Daftar sheet yang akan dibaca (sesuai permintaan Anda) ---
+    sheet_names = [
+        "DATABASE", "DB KLIK - REKAP - READY", "DB KLIK - REKAP - HABIS",
+        "ADDITAMA - REKAP - READY", "ADDITAMA - REKAP - HABIS",
+        "LEVEL 99 - REKAP - READY", "LEVEL 99 - REKAP - HABIS",
+        "JAYA PC - REKAP - READY", "JAYA PC - REKAP - HABIS",
+        "MULTIFUNGSI - REKAP - READY", "MULTIFUNGSI - REKAP - HABIS",
+        "IT SHOP - REKAP - READY", "IT SHOP - REKAP - HABIS",
+        "SURYA MITRA ONLINE - REKAP - READY", "SURYA MITRA ONLINE - REKAP - HABIS",
+        "GG STORE - REKAP - READY", "GG STORE - REKAP - HABIS"
+    ]
+    
     rekap_list_df, database_df = [], pd.DataFrame()
     try:
-        for sheet in spreadsheet.worksheets():
-            sheet_title = sheet.title
-            if "DATABASE" in sheet_title.upper():
-                database_df = pd.DataFrame(sheet.get_all_records())
-            elif "REKAP" in sheet_title.upper():
-                df_sheet = pd.DataFrame(sheet.get_all_records())
+        for sheet_name in sheet_names:
+            st.write(f"Membaca sheet: {sheet_name}...") # Pesan proses untuk debugging
+            sheet = spreadsheet.worksheet(sheet_name)
+            df_sheet = pd.DataFrame(sheet.get_all_records())
+            
+            if "DATABASE" in sheet_name.upper():
+                database_df = df_sheet
+            elif "REKAP" in sheet_name.upper():
                 if df_sheet.empty: continue
-                store_name_match = re.match(r"^(.*?) - REKAP", sheet_title, re.IGNORECASE)
+                store_name_match = re.match(r"^(.*?) - REKAP", sheet_name, re.IGNORECASE)
                 df_sheet['Toko'] = store_name_match.group(1).strip() if store_name_match else "Toko Tak Dikenal"
-                if "TERSEDIA" in sheet_title.upper() or "READY" in sheet_title.upper():
+                if "TERSEDIA" in sheet_name.upper() or "READY" in sheet_name.upper():
                     df_sheet['Status'] = 'Tersedia'
                 else:
                     df_sheet['Status'] = 'Habis'
                 rekap_list_df.append(df_sheet)
+    except gspread.exceptions.WorksheetNotFound as e:
+        st.error(f"GAGAL: Sheet '{e.args[0]}' tidak ditemukan di Google Sheets Anda. Periksa kembali ejaan pada daftar 'sheet_names' di dalam kode.")
+        return pd.DataFrame(), pd.DataFrame(), None
     except Exception as e:
         st.error(f"Gagal memproses sheet: {e}. Periksa format data di Google Sheets."); return pd.DataFrame(), pd.DataFrame(), None
 
@@ -60,17 +78,11 @@ def load_data_from_gsheets():
     if not database_df.empty:
         database_df.columns = [str(col).strip().upper() for col in database_df.columns]
     
-    # --- PERBAIKAN UTAMA: URUTAN PEMROSESAN KOLOM ---
-    # 1. Standarkan nama kolom dari sumber (UPPERCASE)
     rekap_df.columns = [str(col).strip().upper() for col in rekap_df.columns]
+    rekap_df.rename(columns={'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga'}, inplace=True)
     
-    # 2. Rename kolom sumber ke nama yang kita inginkan (Title Case)
-    column_mapping = {'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga'}
-    rekap_df.rename(columns=column_mapping, inplace=True)
-
     if 'BRAND' not in rekap_df.columns:
-        if 'Nama Produk' in rekap_df.columns:
-            rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
+        if 'Nama Produk' in rekap_df.columns: rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
     else:
         rekap_df['Brand'] = rekap_df['BRAND'].str.upper()
     if 'STOK' not in rekap_df.columns: rekap_df['Stok'] = 'N/A'
@@ -174,7 +186,7 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
         st.header(f"Perbandingan Produk '{main_store}' dengan Kompetitor")
         
         st.subheader("1. Ringkasan Kinerja Mingguan (WoW Growth)")
-        main_store_df['Minggu'] = main_store_df['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time)
+        main_store_df['Minggu'] = main_store_df['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time).dt.date
         weekly_summary = main_store_df.groupby('Minggu').agg(Omzet=('Omzet', 'sum'), Penjualan_Unit=('Terjual per Bulan', 'sum')).reset_index()
         weekly_summary['Pertumbuhan Omzet (WoW)'] = weekly_summary['Omzet'].pct_change().apply(format_wow_growth)
         st.dataframe(weekly_summary, use_container_width=True, hide_index=True)
@@ -235,7 +247,7 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
     
     with tab4:
         st.header("Tren Status Stok Mingguan per Toko")
-        df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time)
+        df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time).dt.date
         stock_trends = df_filtered.groupby(['Minggu', 'Toko', 'Status']).size().unstack(fill_value=0).reset_index()
         stock_trends_melted = stock_trends.melt(id_vars=['Minggu', 'Toko'], value_vars=['Tersedia', 'Habis'], var_name='Tipe Stok', value_name='Jumlah Produk')
         
@@ -245,7 +257,7 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
 
     with tab5:
         st.header("Analisis Kinerja Penjualan (Semua Toko)")
-        df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time)
+        df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time).dt.date
 
         st.subheader("1. Grafik Omzet Mingguan")
         weekly_omzet = df_filtered.groupby(['Minggu', 'Toko'])['Omzet'].sum().reset_index()
