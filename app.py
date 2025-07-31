@@ -73,22 +73,32 @@ def load_data_from_gsheets():
     if not database_df.empty:
         database_df.columns = [str(col).strip().upper() for col in database_df.columns]
     
+    # Standardisasi nama kolom menjadi HURUF BESAR
     rekap_df.columns = [str(col).strip().upper() for col in rekap_df.columns]
-    rekap_df.rename(columns={'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan'}, inplace=True)
     
-    if 'BRAND' not in rekap_df.columns:
-        if 'Nama Produk' in rekap_df.columns:
-            rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
-    else:
-        rekap_df['Brand'] = rekap_df['BRAND'].str.upper()
-    if 'STOK' not in rekap_df.columns: rekap_df['Stok'] = 'N/A'
+    # --- PERBAIKAN KeyError: Menstandardisasi kolom 'Toko' dan lainnya ---
+    column_mapping = {
+        'NAMA': 'Nama Produk', 
+        'TERJUAL/BLN': 'Terjual per Bulan', 
+        'TANGGAL': 'Tanggal', 
+        'HARGA': 'Harga',
+        'TOKO': 'Toko', # Mengubah TOKO (uppercase) menjadi Toko (title case)
+        'STATUS': 'Status',
+        'BRAND': 'Brand',
+        'STOK': 'Stok'
+    }
+    rekap_df.rename(columns=column_mapping, inplace=True)
     
-    required_cols = ['TANGGAL', 'Nama Produk', 'HARGA', 'Terjual per Bulan']
+    # Logika Cerdas untuk Kolom BRAND dan STOK (jika tidak ada di mapping)
+    if 'Brand' not in rekap_df.columns and 'Nama Produk' in rekap_df.columns:
+        rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
+    if 'Stok' not in rekap_df.columns: 
+        rekap_df['Stok'] = 'N/A'
+    
+    required_cols = ['Tanggal', 'Nama Produk', 'Harga', 'Terjual per Bulan']
     if not all(col in rekap_df.columns for col in required_cols):
         st.error(f"Kolom krusial hilang. Pastikan semua sheet REKAP memiliki: {required_cols}")
         return pd.DataFrame(), pd.DataFrame(), my_store_name
-
-    rekap_df.rename(columns={'TANGGAL': 'Tanggal', 'HARGA': 'Harga'}, inplace=True)
 
     rekap_df['Tanggal'] = pd.to_datetime(rekap_df['Tanggal'], errors='coerce', dayfirst=True)
     rekap_df['Harga'] = pd.to_numeric(rekap_df['Harga'], errors='coerce')
@@ -98,10 +108,7 @@ def load_data_from_gsheets():
     for col in ['Harga', 'Terjual per Bulan']: rekap_df[col] = rekap_df[col].astype(int)
     rekap_df['Omzet'] = rekap_df['Harga'] * rekap_df['Terjual per Bulan']
     
-    cols_for_dedup = ['Nama Produk', 'Toko', 'Tanggal']
-    existing_cols = [col for col in cols_for_dedup if col in rekap_df.columns]
-    if existing_cols:
-        rekap_df.drop_duplicates(subset=existing_cols, inplace=True, keep='last')
+    rekap_df.drop_duplicates(subset=['Nama Produk', 'Toko', 'Tanggal'], inplace=True, keep='last')
 
     return rekap_df.sort_values('Tanggal'), database_df, my_store_name
 
