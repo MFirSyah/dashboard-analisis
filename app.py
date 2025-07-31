@@ -172,7 +172,7 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
             top_n_cat = col2.number_input("Tampilkan Top:", 1, len(category_sales), 10, key="cat_top_n")
             
             cat_sales_sorted = category_sales.sort_values('Terjual per Bulan', ascending=(sort_order_cat == "Kurang Laris")).head(top_n_cat)
-            fig_cat = px.bar(cat_sales_sorted, 'Kategori', 'Terjual per Bulan', title=f'Top {top_n_cat} Kategori', text_auto=True)
+            fig_cat = px.bar(cat_sales_sorted, names='Kategori', values='Terjual per Bulan', title=f'Top {top_n_cat} Kategori', text_auto=True)
             st.plotly_chart(fig_cat, use_container_width=True)
         
         st.subheader("2. Produk Terlaris")
@@ -182,7 +182,6 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
 
         st.subheader("3. Distribusi Penjualan Brand (Top 6)")
         brand_sales = main_store_df.groupby('Brand')['Terjual per Bulan'].sum().nlargest(6).reset_index()
-        # --- PERBAIKAN: Menggunakan keyword arguments untuk px.pie ---
         fig_brand_pie = px.pie(brand_sales, names='Brand', values='Terjual per Bulan', title='Top 6 Brand Terlaris')
         st.plotly_chart(fig_brand_pie, use_container_width=True)
 
@@ -241,14 +240,18 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
             with col1:
                 st.subheader("2. Distribusi Brand Terlaris (Top 6)")
                 top_6_brands = competitor_df.groupby('Brand')['Terjual per Bulan'].sum().nlargest(6).reset_index()
-                # --- PERBAIKAN: Menggunakan keyword arguments untuk px.pie ---
                 fig_pie_comp = px.pie(top_6_brands, names='Brand', values='Terjual per Bulan', title='Top 6 Brand di Semua Kompetitor')
                 st.plotly_chart(fig_pie_comp, use_container_width=True)
             with col2:
                 st.subheader("3. Analisis Mendalam per Brand")
-                inspect_brand = st.selectbox("Pilih Brand untuk dilihat:", sorted(competitor_df['Brand'].unique()))
-                brand_detail = competitor_df[competitor_df['Brand'] == inspect_brand].sort_values("Terjual per Bulan", ascending=False)
-                st.dataframe(brand_detail[['Toko', 'Nama Produk', 'Terjual per Bulan', 'Harga']], use_container_width=True, hide_index=True)
+                # --- PERBAIKAN: Memeriksa apakah competitor_df tidak kosong sebelum membuat selectbox ---
+                brand_options = sorted(competitor_df['Brand'].unique())
+                if brand_options:
+                    inspect_brand = st.selectbox("Pilih Brand untuk dilihat:", brand_options)
+                    brand_detail = competitor_df[competitor_df['Brand'] == inspect_brand].sort_values("Terjual per Bulan", ascending=False)
+                    st.dataframe(brand_detail[['Toko', 'Nama Produk', 'Terjual per Bulan', 'Harga']], use_container_width=True, hide_index=True)
+                else:
+                    st.info("Tidak ada brand kompetitor untuk dianalisis.")
     
     with tab4:
         st.header("Tren Status Stok Mingguan per Toko")
@@ -256,7 +259,7 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
         stock_trends = df_filtered.groupby(['Minggu', 'Toko', 'Status']).size().unstack(fill_value=0).reset_index()
         stock_trends_melted = stock_trends.melt(id_vars=['Minggu', 'Toko'], value_vars=['Tersedia', 'Habis'], var_name='Tipe Stok', value_name='Jumlah Produk')
         
-        fig_stock_trends = px.line(stock_trends_melted, 'Minggu', 'Jumlah Produk', color='Toko', line_dash='Tipe Stok', markers=True, title='Jumlah Produk Tersedia vs. Habis per Minggu')
+        fig_stock_trends = px.line(stock_trends_melted, x='Minggu', y='Jumlah Produk', color='Toko', line_dash='Tipe Stok', markers=True, title='Jumlah Produk Tersedia vs. Habis per Minggu')
         st.plotly_chart(fig_stock_trends, use_container_width=True)
         st.dataframe(stock_trends.set_index('Minggu'), use_container_width=True)
 
@@ -266,7 +269,7 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
 
         st.subheader("1. Grafik Omzet Mingguan")
         weekly_omzet = df_filtered.groupby(['Minggu', 'Toko'])['Omzet'].sum().reset_index()
-        fig_weekly_omzet = px.line(weekly_omzet, 'Minggu', 'Omzet', color='Toko', markers=True, title='Perbandingan Omzet Mingguan Antar Toko')
+        fig_weekly_omzet = px.line(weekly_omzet, x='Minggu', y='Omzet', color='Toko', markers=True, title='Perbandingan Omzet Mingguan Antar Toko')
         st.plotly_chart(fig_weekly_omzet, use_container_width=True)
 
         st.subheader("2. Tabel Ringkasan Kinerja Mingguan per Toko")
