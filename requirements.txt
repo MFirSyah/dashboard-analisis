@@ -1,10 +1,7 @@
 # requirements.txt
-
 streamlit
 pandas
 thefuzz[speed]
-matplotlib
-openpyxl
 plotly
 gspread
 gspread-pandas
