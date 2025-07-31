@@ -19,7 +19,7 @@ def load_data_from_gsheets():
         creds = st.secrets["gcp_service_account"]
         client = Client(creds)
         # Ganti dengan NAMA PERSIS file Google Sheets Anda
-        spreadsheet_name = "NAMA_FILE_GOOGLE_SHEETS_ANDA"
+        spreadsheet_name = "DATA REKAP"
         spread = Spread(spreadsheet_name, client=client)
     except gspread.exceptions.SpreadsheetNotFound:
         st.error(f"Spreadsheet dengan nama '{spreadsheet_name}' tidak ditemukan. Pastikan nama sudah benar dan sudah dibagikan ke email service account.")
