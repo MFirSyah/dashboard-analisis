@@ -1,4 +1,4 @@
-# requirements.txt
+# requirements.txt (versi baru)
 streamlit
 pandas
 thefuzz[speed]
@@ -6,4 +6,3 @@ matplotlib
 openpyxl
 plotly
 gspread
-gspread-pandas
