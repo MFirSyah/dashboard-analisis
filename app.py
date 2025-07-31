@@ -35,21 +35,34 @@ def load_data_from_gsheets():
         st.warning("Pastikan 10 baris 'Secrets' sudah benar dan Google Sheet sudah di-share."); return pd.DataFrame(), pd.DataFrame(), None
 
     rekap_list_df, database_df = [], pd.DataFrame()
+    sheet_names = [
+        "DATABASE", "DB KLIK - REKAP - READY", "DB KLIK - REKAP - HABIS",
+        "ADDITAMA - REKAP - READY", "ADDITAMA - REKAP - HABIS",
+        "LEVEL 99 - REKAP - READY", "LEVEL 99 - REKAP - HABIS",
+        "JAYA PC - REKAP - READY", "JAYA PC - REKAP - HABIS",
+        "MULTIFUNGSI - REKAP - READY", "MULTIFUNGSI - REKAP - HABIS",
+        "IT SHOP - REKAP - READY", "IT SHOP - REKAP - HABIS",
+        "SURYA MITRA ONLINE - REKAP - READY", "SURYA MITRA ONLINE - REKAP - HABIS",
+        "GG STORE - REKAP - READY", "GG STORE - REKAP - HABIS"
+    ]
     try:
-        for sheet in spreadsheet.worksheets():
-            sheet_title = sheet.title
-            if "DATABASE" in sheet_title.upper():
-                database_df = pd.DataFrame(sheet.get_all_records())
-            elif "REKAP" in sheet_title.upper():
-                df_sheet = pd.DataFrame(sheet.get_all_records())
+        for sheet_name in sheet_names:
+            sheet = spreadsheet.worksheet(sheet_name)
+            df_sheet = pd.DataFrame(sheet.get_all_records())
+            
+            if "DATABASE" in sheet_name.upper():
+                database_df = df_sheet
+            elif "REKAP" in sheet_name.upper():
                 if df_sheet.empty: continue
-                store_name_match = re.match(r"^(.*?) - REKAP", sheet_title, re.IGNORECASE)
+                store_name_match = re.match(r"^(.*?) - REKAP", sheet_name, re.IGNORECASE)
                 df_sheet['Toko'] = store_name_match.group(1).strip() if store_name_match else "Toko Tak Dikenal"
-                if "TERSEDIA" in sheet_title.upper() or "READY" in sheet_title.upper():
+                if "TERSEDIA" in sheet_name.upper() or "READY" in sheet_name.upper():
                     df_sheet['Status'] = 'Tersedia'
                 else:
                     df_sheet['Status'] = 'Habis'
                 rekap_list_df.append(df_sheet)
+    except gspread.exceptions.WorksheetNotFound as e:
+        st.error(f"GAGAL: Sheet '{e.args[0]}' tidak ditemukan. Periksa daftar 'sheet_names' di dalam kode."); return pd.DataFrame(), pd.DataFrame(), None
     except Exception as e:
         st.error(f"Gagal memproses sheet: {e}. Periksa format data di Google Sheets."); return pd.DataFrame(), pd.DataFrame(), None
 
@@ -61,27 +74,17 @@ def load_data_from_gsheets():
     if not database_df.empty:
         database_df.columns = [str(col).strip().upper() for col in database_df.columns]
     
-    # --- PERBAIKAN FINAL: Standarisasi Nama Kolom ---
-    # 1. Buat semua nama kolom menjadi UPPERCASE untuk konsistensi awal
     rekap_df.columns = [str(col).strip().upper() for col in rekap_df.columns]
     
-    # 2. Siapkan pemetaan dari UPPERCASE ke Title Case yang kita inginkan
     final_rename_mapping = {
-        'NAMA': 'Nama Produk',
-        'TERJUAL/BLN': 'Terjual per Bulan',
-        'TANGGAL': 'Tanggal',
-        'HARGA': 'Harga',
-        'BRAND': 'Brand',
-        'STOK': 'Stok',
-        'TOKO': 'Toko',
-        'STATUS': 'Status'
+        'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan',
+        'TANGGAL': 'Tanggal', 'HARGA': 'Harga', 'BRAND': 'Brand',
+        'STOK': 'Stok', 'TOKO': 'Toko', 'STATUS': 'Status'
     }
     rekap_df.rename(columns=final_rename_mapping, inplace=True)
 
     if 'Brand' not in rekap_df.columns:
-        if 'Nama Produk' in rekap_df.columns:
-            rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
-    
+        if 'Nama Produk' in rekap_df.columns: rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
     if 'Stok' not in rekap_df.columns: rekap_df['Stok'] = 'N/A'
     
     required_cols = ['Tanggal', 'Nama Produk', 'Harga', 'Terjual per Bulan']
@@ -128,14 +131,17 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
     all_stores = sorted(df['Toko'].unique())
     main_store = st.sidebar.selectbox("Pilih Toko Utama:", all_stores, index=all_stores.index(my_store_name_from_db) if my_store_name_from_db in all_stores else 0)
     min_date, max_date = df['Tanggal'].min().date(), df['Tanggal'].max().date()
-    start_date, end_date = st.sidebar.date_input("Rentang Tanggal:", [min_date, max_date], min_value=min_date, max_value=max_date)
     
-    if len(start_date) != 2:
+    # --- PERBAIKAN TypeError PADA INPUT TANGGAL ---
+    selected_date_range = st.sidebar.date_input("Rentang Tanggal:", [min_date, max_date], min_value=min_date, max_value=max_date)
+    if len(selected_date_range) != 2:
         st.warning("Silakan pilih rentang tanggal yang valid."); st.stop()
-    
+    start_date, end_date = selected_date_range
+    # --- AKHIR PERBAIKAN ---
+
     accuracy_cutoff = st.sidebar.slider("Tingkat Akurasi Pencocokan (%)", 80, 100, 91, 1)
 
-    df_filtered = df[(df['Tanggal'].dt.date >= start_date[0]) & (df['Tanggal'].dt.date <= start_date[1])].copy()
+    df_filtered = df[(df['Tanggal'].dt.date >= start_date) & (df['Tanggal'].dt.date <= end_date)].copy()
     if df_filtered.empty:
         st.error("Tidak ada data pada rentang tanggal yang dipilih."); st.stop()
     
