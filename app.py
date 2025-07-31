@@ -1,91 +1,77 @@
-# KODE FINAL LENGKAP - app.py (FIX + FITUR BARU)
+# KODE DIAGNOSIS - MENGGUNAKAN LINK PUBLIK
 
 import streamlit as st
 import pandas as pd
 from thefuzz import process, fuzz
 import plotly.express as px
 import re
-import gspread
-from gspread_pandas import Spread
+import urllib.parse
 
 st.set_page_config(layout="wide", page_title="Dashboard Analisis")
 
-# --- FUNGSI-FUNGSI UTAMA ---
-
+# --- FUNGSI BARU UNTUK MEMBACA DATA DARI LINK PUBLIK ---
 @st.cache_data(show_spinner="Mengambil data terbaru dari Google Sheets...", ttl=600)
-def load_data_from_gsheets():
+def load_data_from_public_link():
     try:
-        # =======================================================================
-        # === PERBAIKAN KESALAHAN UTAMA ADA DI SINI ===
-        # Kita tidak menggunakan nama file atau URL, tapi ID unik spreadsheet.
+        sheet_id = "1hl7YPEPg4aaEheN5fBKk65YX3-KdkQBRHCJWhVr9kVQ"
         
-        # 1. Definisikan ID spreadsheet Anda
-        spreadsheet_id = "1hl7YPEPg4aaEheN5fBKk65YX3-KdkQBRHCJWhVr9kVQ"
-        
-        # 2. Otentikasi menggunakan gspread langsung dari st.secrets
-        gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
-        
-        # 3. Buka spreadsheet menggunakan ID (open_by_key), ini jauh lebih andal
-        spreadsheet = gc.open_by_key(spreadsheet_id)
-        
-        # 4. Buat objek Spread dari gspread-pandas
-        spread = Spread(spread=spreadsheet)
-        # =======================================================================
+        # Tulis semua nama sheet Anda di sini persis seperti di Google Sheets
+        sheet_names = [
+            "DATABASE", "DB KLIK - REKAP - READY", "DB KLIK - REKAP - HABIS",
+            "ADDITAMA - REKAP - READY", "ADDITAMA - REKAP - HABIS",
+            "LEVEL 99 - REKAP - READY", "LEVEL 99 - REKAP - HABIS"
+        ]
 
-    except gspread.exceptions.SpreadsheetNotFound:
-        st.error(f"Spreadsheet dengan ID '{spreadsheet_id}' tidak ditemukan. Pastikan ID sudah benar dan sheet sudah dibagikan ke email service account.")
-        return pd.DataFrame(), pd.DataFrame(), None
+        processed_rekap_list = []
+        database_df = pd.DataFrame()
+        
+        for sheet_name in sheet_names:
+            encoded_sheet_name = urllib.parse.quote(sheet_name)
+            url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={encoded_sheet_name}"
+            df_sheet = pd.read_csv(url)
+
+            if "DATABASE" in sheet_name.upper():
+                database_df = df_sheet
+                continue # Lanjut ke sheet berikutnya
+
+            if "REKAP" in sheet_name.upper():
+                store_name_match = re.match(r"^(.*?) - REKAP", sheet_name, re.IGNORECASE)
+                store_name = store_name_match.group(1).strip() if store_name_match else "Toko Tidak Dikenal"
+                df_sheet['Toko'] = store_name
+                
+                if "READY" in sheet_name.upper():
+                    df_sheet['Status'] = 'Tersedia'
+                elif "HABIS" in sheet_name.upper():
+                    df_sheet['Status'] = 'Habis'
+                
+                processed_rekap_list.append(df_sheet)
+
     except Exception as e:
-        st.error(f"Terjadi kesalahan saat menghubungkan ke Google Sheets: {e}")
-        st.info("Pastikan Secrets, ID Spreadsheet, dan izin sharing sudah benar.")
+        st.error(f"Gagal memuat data dari link publik Google Sheet: {e}")
+        st.info("Pastikan link sheet diatur ke 'Anyone with the link' dan nama sheet di dalam kode sudah benar.")
         return pd.DataFrame(), pd.DataFrame(), None
 
-    rekap_list_df = []
-    database_df = pd.DataFrame()
+    if not processed_rekap_list:
+        st.error("Tidak ada data REKAP yang berhasil dimuat. Periksa nama-nama sheet REKAP di dalam kode.")
+        return pd.DataFrame(), pd.DataFrame(), None
+
+    rekap_df = pd.concat(processed_rekap_list, ignore_index=True)
+    
     my_store_name = None
+    if not database_df.empty:
+        database_df.columns = [str(col).strip().upper() for col in database_df.columns]
+        # Cari nama toko dari salah satu sheet rekap, asumsi nama toko utama ada di data
+        # Jika ada sheet "NAMA TOKO - DATABASE", Anda bisa ambil dari sana
+        my_store_name = "DB KLIK" # Ganti dengan nama toko utama Anda jika perlu
 
-    for sheet in spread.sheets:
-        sheet_title = sheet.title
-        is_database_file = "DATABASE" in sheet_title.upper()
-        is_rekap_file = "REKAP" in sheet_title.upper()
-
-        if is_database_file:
-            database_df = spread.sheet_to_df(index=None, sheet=sheet)
-            database_df.columns = [str(col).strip().upper() for col in database_df.columns]
-            db_store_name_match = re.match(r"^(.*?) - DATABASE", sheet_title, re.IGNORECASE)
-            if db_store_name_match:
-                my_store_name = db_store_name_match.group(1).strip()
-        
-        elif is_rekap_file:
-            df_sheet = spread.sheet_to_df(index=None, sheet=sheet, header_rows=1)
-            if df_sheet.empty:
-                continue
-            df_sheet.columns = [str(col).strip().upper() for col in df_sheet.columns]
-            store_name_match = re.match(r"^(.*?) - REKAP", sheet_title, re.IGNORECASE)
-            store_name = store_name_match.group(1).strip() if store_name_match else "Toko Tidak Dikenal"
-            df_sheet['Toko'] = store_name
-
-            if "READY" in sheet_title.upper():
-                df_sheet['Status'] = 'Tersedia'
-            elif "HABIS" in sheet_title.upper():
-                df_sheet['Status'] = 'Habis'
-            else:
-                df_sheet['Status'] = 'Tidak Diketahui'
-            
-            rekap_list_df.append(df_sheet)
-
-    if not rekap_list_df:
-        return pd.DataFrame(), pd.DataFrame(), None
-
-    rekap_df = pd.concat(rekap_list_df, ignore_index=True)
+    # --- Bagian pemrosesan data (sama seperti kode lama) ---
     column_mapping = {'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga'}
     rekap_df.rename(columns=column_mapping, inplace=True)
     
     required_cols = ['Tanggal', 'Nama Produk', 'Harga', 'Terjual per Bulan']
-    for col in required_cols:
-        if col not in rekap_df.columns:
-            st.error(f"Kolom krusial '{col}' tidak ditemukan di sheet REKAP. Pastikan nama kolom sudah benar.")
-            return pd.DataFrame(), pd.DataFrame(), None
+    if not all(col in rekap_df.columns for col in required_cols):
+        st.error(f"Satu atau lebih kolom krusial tidak ditemukan. Pastikan semua sheet REKAP memiliki kolom: {required_cols}")
+        return pd.DataFrame(), pd.DataFrame(), my_store_name
 
     rekap_df['Tanggal'] = pd.to_datetime(rekap_df['Tanggal'], errors='coerce')
     def clean_price(price):
@@ -99,7 +85,9 @@ def load_data_from_gsheets():
     rekap_df['Harga'] = rekap_df['Harga'].astype(int)
     rekap_df['Omzet'] = rekap_df['Harga'] * rekap_df['Terjual per Bulan']
     rekap_df.drop_duplicates(subset=['Nama Produk', 'Toko', 'Tanggal'], inplace=True)
+    
     return rekap_df.sort_values('Tanggal'), database_df, my_store_name
+
 
 def get_smart_matches(query_product_info, competitor_df, limit=5, score_cutoff=90):
     query_name = query_product_info['Nama Produk']
@@ -157,14 +145,15 @@ st.title("📊 Dashboard Analisis Penjualan & Kompetitor")
 st.sidebar.header("Kontrol Analisis")
 
 if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
-    df, db_df, my_store_name_from_db = load_data_from_gsheets()
+    df, db_df, my_store_name_from_db = load_data_from_public_link()
+
     if df.empty:
         st.error("Gagal memuat data dari Google Sheets. Periksa kembali semua pengaturan.")
         st.stop()
     if db_df.empty:
         st.warning("Sheet DATABASE tidak ditemukan atau gagal dibaca. Tab 'Analisis Toko Saya' tidak akan tersedia.")
-    if my_store_name_from_db is None and not db_df.empty:
-        st.warning("Nama toko Anda tidak dapat diidentifikasi dari nama sheet DATABASE. Gunakan format 'NAMA TOKO - DATABASE'.")
+    if my_store_name_from_db is None:
+        my_store_name_from_db = "Toko Saya" # Fallback name
 
     st.sidebar.header("Filter Data")
     all_stores_list = sorted(df['Toko'].unique())
@@ -185,13 +174,13 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
     competitor_df = df_filtered[df_filtered['Toko'] != main_store_for_comp].copy()
     
     TABS = []
-    if not db_df.empty and my_store_name_from_db:
+    if not db_df.empty:
         TABS.append(f"⭐ Analisis Toko Saya ({my_store_name_from_db})")
     TABS.extend(["⚖️ Perbandingan Harga", "🏆 Analisis Brand Kompetitor", "📦 Status Stok Produk", "💡 Rekomendasi Analisis", "📈 Kinerja Penjualan"])
     created_tabs = st.tabs(TABS)
     start_index = 0
 
-    if not db_df.empty and my_store_name_from_db:
+    if not db_df.empty:
         my_store_tab = created_tabs[0]
         start_index = 1
         with my_store_tab:
@@ -212,7 +201,7 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
                         for index, row in _rekap_df.iterrows():
                             match, score = process.extractOne(row['Nama Produk'], db_product_list, scorer=fuzz.token_set_ratio)
                             if score >= 95:
-                                matched_category = _database_df[_database_df['NAMA'] == match]['KATEGORI'].iloc[0]
+                                matched_category = _database_df.loc[_database_df['NAMA'] == match, 'KATEGORI'].iloc[0]
                                 _rekap_df.loc[index, 'Kategori'] = matched_category
                         return _rekap_df
                     my_store_rekap_df = fuzzy_merge_categories(my_store_rekap_df, db_df)
