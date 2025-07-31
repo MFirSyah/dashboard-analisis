@@ -131,17 +131,14 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
     all_stores = sorted(df['Toko'].unique())
     main_store = st.sidebar.selectbox("Pilih Toko Utama:", all_stores, index=all_stores.index(my_store_name_from_db) if my_store_name_from_db in all_stores else 0)
     min_date, max_date = df['Tanggal'].min().date(), df['Tanggal'].max().date()
+    start_date, end_date = st.sidebar.date_input("Rentang Tanggal:", [min_date, max_date], min_value=min_date, max_value=max_date)
     
-    # --- PERBAIKAN TypeError PADA INPUT TANGGAL ---
-    selected_date_range = st.sidebar.date_input("Rentang Tanggal:", [min_date, max_date], min_value=min_date, max_value=max_date)
-    if len(selected_date_range) != 2:
+    if len(start_date) != 2:
         st.warning("Silakan pilih rentang tanggal yang valid."); st.stop()
-    start_date, end_date = selected_date_range
-    # --- AKHIR PERBAIKAN ---
-
+    
     accuracy_cutoff = st.sidebar.slider("Tingkat Akurasi Pencocokan (%)", 80, 100, 91, 1)
 
-    df_filtered = df[(df['Tanggal'].dt.date >= start_date) & (df['Tanggal'].dt.date <= end_date)].copy()
+    df_filtered = df[(df['Tanggal'].dt.date >= start_date[0]) & (df['Tanggal'].dt.date <= start_date[1])].copy()
     if df_filtered.empty:
         st.error("Tidak ada data pada rentang tanggal yang dipilih."); st.stop()
     
@@ -155,13 +152,18 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
         
         st.subheader("1. Kategori Produk Terlaris")
         if not db_df.empty and 'KATEGORI' in db_df.columns and 'NAMA' in db_df.columns:
+            
+            # --- PERBAIKAN ValueError DI FUNGSI INI ---
             @st.cache_data
             def fuzzy_merge_categories(_rekap_df, _database_df):
                 _rekap_df['Kategori'] = 'Lainnya'
-                db_map = _database_df.set_index('NAMA')['KATEGORI']
+                # Pastikan tidak ada duplikat nama produk di database untuk mencegah error
+                db_unique = _database_df.drop_duplicates(subset=['NAMA'])
+                db_map = db_unique.set_index('NAMA')['KATEGORI']
                 for index, row in _rekap_df.iterrows():
                     match, score = process.extractOne(row['Nama Produk'], db_map.index, scorer=fuzz.token_set_ratio)
-                    if score >= 95: _rekap_df.loc[index, 'Kategori'] = db_map[match]
+                    if score >= 95:
+                        _rekap_df.loc[index, 'Kategori'] = db_map[match]
                 return _rekap_df
             
             main_store_df_cat = fuzzy_merge_categories(main_store_df.copy(), db_df)
