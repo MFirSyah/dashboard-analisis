@@ -172,7 +172,9 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
             top_n_cat = col2.number_input("Tampilkan Top:", 1, len(category_sales), 10, key="cat_top_n")
             
             cat_sales_sorted = category_sales.sort_values('Terjual per Bulan', ascending=(sort_order_cat == "Kurang Laris")).head(top_n_cat)
-            fig_cat = px.bar(cat_sales_sorted, names='Kategori', values='Terjual per Bulan', title=f'Top {top_n_cat} Kategori', text_auto=True)
+            
+            # --- PERBAIKAN: Menggunakan argumen x dan y untuk px.bar ---
+            fig_cat = px.bar(cat_sales_sorted, x='Kategori', y='Terjual per Bulan', title=f'Top {top_n_cat} Kategori', text_auto=True)
             st.plotly_chart(fig_cat, use_container_width=True)
         
         st.subheader("2. Produk Terlaris")
@@ -244,7 +246,6 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
                 st.plotly_chart(fig_pie_comp, use_container_width=True)
             with col2:
                 st.subheader("3. Analisis Mendalam per Brand")
-                # --- PERBAIKAN: Memeriksa apakah competitor_df tidak kosong sebelum membuat selectbox ---
                 brand_options = sorted(competitor_df['Brand'].unique())
                 if brand_options:
                     inspect_brand = st.selectbox("Pilih Brand untuk dilihat:", brand_options)
