@@ -131,14 +131,17 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
     all_stores = sorted(df['Toko'].unique())
     main_store = st.sidebar.selectbox("Pilih Toko Utama:", all_stores, index=all_stores.index(my_store_name_from_db) if my_store_name_from_db in all_stores else 0)
     min_date, max_date = df['Tanggal'].min().date(), df['Tanggal'].max().date()
-    start_date, end_date = st.sidebar.date_input("Rentang Tanggal:", [min_date, max_date], min_value=min_date, max_value=max_date)
     
-    if len(start_date) != 2:
+    # --- PERBAIKAN TypeError PADA INPUT TANGGAL ---
+    selected_date_range = st.sidebar.date_input("Rentang Tanggal:", [min_date, max_date], min_value=min_date, max_value=max_date)
+    if len(selected_date_range) != 2:
         st.warning("Silakan pilih rentang tanggal yang valid."); st.stop()
+    start_date, end_date = selected_date_range
+    # --- AKHIR PERBAIKAN ---
     
     accuracy_cutoff = st.sidebar.slider("Tingkat Akurasi Pencocokan (%)", 80, 100, 91, 1)
 
-    df_filtered = df[(df['Tanggal'].dt.date >= start_date[0]) & (df['Tanggal'].dt.date <= start_date[1])].copy()
+    df_filtered = df[(df['Tanggal'].dt.date >= start_date) & (df['Tanggal'].dt.date <= end_date)].copy()
     if df_filtered.empty:
         st.error("Tidak ada data pada rentang tanggal yang dipilih."); st.stop()
     
@@ -152,12 +155,9 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
         
         st.subheader("1. Kategori Produk Terlaris")
         if not db_df.empty and 'KATEGORI' in db_df.columns and 'NAMA' in db_df.columns:
-            
-            # --- PERBAIKAN ValueError DI FUNGSI INI ---
             @st.cache_data
             def fuzzy_merge_categories(_rekap_df, _database_df):
                 _rekap_df['Kategori'] = 'Lainnya'
-                # Pastikan tidak ada duplikat nama produk di database untuk mencegah error
                 db_unique = _database_df.drop_duplicates(subset=['NAMA'])
                 db_map = db_unique.set_index('NAMA')['KATEGORI']
                 for index, row in _rekap_df.iterrows():
@@ -280,7 +280,7 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
                     jumlah_hari=('Tanggal', 'nunique')
                 ).reset_index()
                 
-                if not weekly_summary.empty:
+                if not weekly_summary.empty and weekly_summary['jumlah_hari'].sum() > 0:
                     weekly_summary['Rata-Rata Terjual Harian'] = round(weekly_summary['total_terjual'] / weekly_summary['jumlah_hari'])
                     st.dataframe(weekly_summary.rename(columns={'Minggu': 'Mulai Minggu', 'total_omzet': 'Total Omzet', 'total_terjual': 'Total Terjual', 'avg_harga': 'Rata-Rata Harga'}), use_container_width=True, hide_index=True)
                 else:
