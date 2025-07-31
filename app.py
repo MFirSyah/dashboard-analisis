@@ -17,8 +17,8 @@ def load_data_from_public_link():
         sheet_id = "1hl7YPEPg4aaEheN5fBKk65YX3-KdkQBRHCJWhVr9kVQ"
         sheet_names = [
             "DATABASE", "DB KLIK - REKAP - READY", "DB KLIK - REKAP - HABIS",
-            "ADDITAMA - REKAP - READY", "ADDITAMA - REKAP - HABIS",
-            "LEVEL 99 - REKAP - READY", "LEVEL 99 - REKAP - HABIS",
+            "ABDITAMA - REKAP - READY", "ABDITAMA - REKAP - HABIS",
+            "LEVEL99 - REKAP - READY", "LEVEL99 - REKAP - HABIS",
             "JAYA PC - REKAP - READY", "JAYA PC - REKAP - HABIS",
             "MULTIFUNGSI - REKAP - READY", "MULTIFUNGSI - REKAP - HABIS",
             "IT SHOP - REKAP - READY", "IT SHOP - REKAP - HABIS",
