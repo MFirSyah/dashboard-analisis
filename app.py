@@ -56,7 +56,6 @@ def load_data_from_gsheets():
                 store_name_match = re.match(r"^(.*?) - REKAP", sheet_title, re.IGNORECASE)
                 df_sheet['Toko'] = store_name_match.group(1).strip() if store_name_match else "Toko Tak Dikenal"
                 
-                # --- PERBAIKAN 1: Mengenali "TERSEDIA" ---
                 if "TERSEDIA" in sheet_title.upper() or "READY" in sheet_title.upper():
                     df_sheet['Status'] = 'Tersedia'
                 else:
@@ -75,7 +74,7 @@ def load_data_from_gsheets():
         database_df.columns = [str(col).strip().upper() for col in database_df.columns]
     
     rekap_df.columns = [str(col).strip().upper() for col in rekap_df.columns]
-    rekap_df.rename(columns={'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga'}, inplace=True)
+    rekap_df.rename(columns={'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan'}, inplace=True)
     
     if 'BRAND' not in rekap_df.columns:
         if 'Nama Produk' in rekap_df.columns:
@@ -84,10 +83,12 @@ def load_data_from_gsheets():
         rekap_df['Brand'] = rekap_df['BRAND'].str.upper()
     if 'STOK' not in rekap_df.columns: rekap_df['Stok'] = 'N/A'
     
-    required_cols = ['Tanggal', 'Nama Produk', 'Harga', 'Terjual per Bulan']
+    required_cols = ['TANGGAL', 'Nama Produk', 'HARGA', 'Terjual per Bulan']
     if not all(col in rekap_df.columns for col in required_cols):
         st.error(f"Kolom krusial hilang. Pastikan semua sheet REKAP memiliki: {required_cols}")
         return pd.DataFrame(), pd.DataFrame(), my_store_name
+
+    rekap_df.rename(columns={'TANGGAL': 'Tanggal', 'HARGA': 'Harga'}, inplace=True)
 
     rekap_df['Tanggal'] = pd.to_datetime(rekap_df['Tanggal'], errors='coerce', dayfirst=True)
     rekap_df['Harga'] = pd.to_numeric(rekap_df['Harga'], errors='coerce')
@@ -97,11 +98,10 @@ def load_data_from_gsheets():
     for col in ['Harga', 'Terjual per Bulan']: rekap_df[col] = rekap_df[col].astype(int)
     rekap_df['Omzet'] = rekap_df['Harga'] * rekap_df['Terjual per Bulan']
     
-    # --- PERBAIKAN 2: Mencegah KeyError saat drop_duplicates ---
     cols_for_dedup = ['Nama Produk', 'Toko', 'Tanggal']
     existing_cols = [col for col in cols_for_dedup if col in rekap_df.columns]
     if existing_cols:
-        rekap_df.drop_duplicates(subset=existing_cols, inplace=True)
+        rekap_df.drop_duplicates(subset=existing_cols, inplace=True, keep='last')
 
     return rekap_df.sort_values('Tanggal'), database_df, my_store_name
 
@@ -113,8 +113,8 @@ def get_smart_matches(query_product_info, competitor_df, score_cutoff=90):
 
 def format_wow_growth(pct_change):
     if pd.isna(pct_change) or pct_change == float('inf'): return "N/A"
-    elif pct_change > 0: return f"▲ {pct_change:.1%}"
-    elif pct_change < 0: return f"▼ {pct_change:.1%}"
+    elif pct_change > 0.001: return f"▲ {pct_change:.1%}"
+    elif pct_change < -0.001: return f"▼ {pct_change:.1%}"
     else: return f"▬ 0.0%"
 
 # --- INTERFACE DASHBOARD UTAMA---
@@ -216,7 +216,7 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
                     match_info = competitor_latest[competitor_latest['Nama Produk'] == product].iloc[0]
                     price_diff = match_info['Harga'] - product_info['Harga']
                     
-                    st.markdown(f"**Toko: {match_info['Toko']}** (Kemiripan Nama: {score}%)")
+                    st.markdown(f"**Toko: {match_info['Toko']}** (Kemiripan Nama: {int(score)}%)")
                     c1, c2, c3 = st.columns(3)
                     c1.metric("Harga Kompetitor", f"Rp {match_info['Harga']:,.0f}", delta=f"Rp {price_diff:,.0f}")
                     c2.metric("Status", match_info['Status'])
