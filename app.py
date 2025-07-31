@@ -2,7 +2,6 @@
 #  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL
 #  Dibuat oleh: Firman & Asisten AI Gemini
 #  Metode Koneksi: Aman & Stabil (gspread + st.secrets individual)
-#  Logika Pemuatan: Berdasarkan daftar sheet yang spesifik
 # ===================================================================================
 
 import streamlit as st
@@ -30,43 +29,27 @@ def load_data_from_gsheets():
         }
         gc = gspread.service_account_from_dict(creds_dict)
         spreadsheet = gc.open_by_key("1hl7YPEPg4aaEheN5fBKk65YX3-KdkQBRHCJWhVr9kVQ")
+        
     except Exception as e:
         st.error(f"GAGAL KONEKSI KE GOOGLE SHEETS: {e}")
         st.warning("Pastikan 10 baris 'Secrets' sudah benar dan Google Sheet sudah di-share."); return pd.DataFrame(), pd.DataFrame(), None
 
-    # --- Daftar sheet yang akan dibaca (sesuai permintaan Anda) ---
-    sheet_names = [
-        "DATABASE", "DB KLIK - REKAP - READY", "DB KLIK - REKAP - HABIS",
-        "ABDITAMA - REKAP - READY", "ABDITAMA - REKAP - HABIS",
-        "LEVEL99 - REKAP - READY", "LEVEL99 - REKAP - HABIS",
-        "JAYA PC - REKAP - READY", "JAYA PC - REKAP - HABIS",
-        "MULTIFUNGSI - REKAP - READY", "MULTIFUNGSI - REKAP - HABIS",
-        "IT SHOP - REKAP - READY", "IT SHOP - REKAP - HABIS",
-        "SURYA MITRA ONLINE - REKAP - READY", "SURYA MITRA ONLINE - REKAP - HABIS",
-        "GG STORE - REKAP - READY", "GG STORE - REKAP - HABIS"
-    ]
-    
     rekap_list_df, database_df = [], pd.DataFrame()
     try:
-        for sheet_name in sheet_names:
-            st.write(f"Membaca sheet: {sheet_name}...") # Pesan proses untuk debugging
-            sheet = spreadsheet.worksheet(sheet_name)
-            df_sheet = pd.DataFrame(sheet.get_all_records())
-            
-            if "DATABASE" in sheet_name.upper():
-                database_df = df_sheet
-            elif "REKAP" in sheet_name.upper():
+        for sheet in spreadsheet.worksheets():
+            sheet_title = sheet.title
+            if "DATABASE" in sheet_title.upper():
+                database_df = pd.DataFrame(sheet.get_all_records())
+            elif "REKAP" in sheet_title.upper():
+                df_sheet = pd.DataFrame(sheet.get_all_records())
                 if df_sheet.empty: continue
-                store_name_match = re.match(r"^(.*?) - REKAP", sheet_name, re.IGNORECASE)
+                store_name_match = re.match(r"^(.*?) - REKAP", sheet_title, re.IGNORECASE)
                 df_sheet['Toko'] = store_name_match.group(1).strip() if store_name_match else "Toko Tak Dikenal"
-                if "TERSEDIA" in sheet_name.upper() or "READY" in sheet_name.upper():
+                if "TERSEDIA" in sheet_title.upper() or "READY" in sheet_title.upper():
                     df_sheet['Status'] = 'Tersedia'
                 else:
                     df_sheet['Status'] = 'Habis'
                 rekap_list_df.append(df_sheet)
-    except gspread.exceptions.WorksheetNotFound as e:
-        st.error(f"GAGAL: Sheet '{e.args[0]}' tidak ditemukan di Google Sheets Anda. Periksa kembali ejaan pada daftar 'sheet_names' di dalam kode.")
-        return pd.DataFrame(), pd.DataFrame(), None
     except Exception as e:
         st.error(f"Gagal memproses sheet: {e}. Periksa format data di Google Sheets."); return pd.DataFrame(), pd.DataFrame(), None
 
@@ -78,14 +61,28 @@ def load_data_from_gsheets():
     if not database_df.empty:
         database_df.columns = [str(col).strip().upper() for col in database_df.columns]
     
+    # --- PERBAIKAN FINAL: Standarisasi Nama Kolom ---
+    # 1. Buat semua nama kolom menjadi UPPERCASE untuk konsistensi awal
     rekap_df.columns = [str(col).strip().upper() for col in rekap_df.columns]
-    rekap_df.rename(columns={'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga'}, inplace=True)
     
-    if 'BRAND' not in rekap_df.columns:
-        if 'Nama Produk' in rekap_df.columns: rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
-    else:
-        rekap_df['Brand'] = rekap_df['BRAND'].str.upper()
-    if 'STOK' not in rekap_df.columns: rekap_df['Stok'] = 'N/A'
+    # 2. Siapkan pemetaan dari UPPERCASE ke Title Case yang kita inginkan
+    final_rename_mapping = {
+        'NAMA': 'Nama Produk',
+        'TERJUAL/BLN': 'Terjual per Bulan',
+        'TANGGAL': 'Tanggal',
+        'HARGA': 'Harga',
+        'BRAND': 'Brand',
+        'STOK': 'Stok',
+        'TOKO': 'Toko',
+        'STATUS': 'Status'
+    }
+    rekap_df.rename(columns=final_rename_mapping, inplace=True)
+
+    if 'Brand' not in rekap_df.columns:
+        if 'Nama Produk' in rekap_df.columns:
+            rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
+    
+    if 'Stok' not in rekap_df.columns: rekap_df['Stok'] = 'N/A'
     
     required_cols = ['Tanggal', 'Nama Produk', 'Harga', 'Terjual per Bulan']
     if not all(col in rekap_df.columns for col in required_cols):
