@@ -164,8 +164,9 @@ if df_filtered.empty:
 
 main_store_df = df_filtered[df_filtered['Toko'] == main_store].copy()
 competitor_df = df_filtered[df_filtered['Toko'] != main_store].copy()
+df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time).dt.date
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([f"⭐ Analisis Toko Saya ({main_store})", "⚖️ Perbandingan Harga", "🏆 Analisis Brand Kompetitor", "📦 Status Stok Produk", "📈 Kinerja Penjualan"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([f"⭐ Analisis Toko Saya ({main_store})", "⚖️ Perbandingan Harga", "🏆 Analisis Brand Kompetitor", "📦 Status Stok Produk", "📈 Kinerja Penjualan", "🚀 Analisis Pertumbuhan"])
 
 with tab1:
     st.header(f"Analisis Kinerja Toko: {main_store}")
@@ -178,9 +179,10 @@ with tab1:
             db_unique = _database_df.drop_duplicates(subset=['NAMA'])
             db_map = db_unique.set_index('NAMA')['KATEGORI']
             for index, row in _rekap_df.iterrows():
-                match, score = process.extractOne(row['Nama Produk'], db_map.index, scorer=fuzz.token_set_ratio)
-                if score >= 95:
-                    _rekap_df.loc[index, 'Kategori'] = db_map[match]
+                if pd.notna(row['Nama Produk']):
+                    match, score = process.extractOne(row['Nama Produk'], db_map.index, scorer=fuzz.token_set_ratio)
+                    if score >= 95:
+                        _rekap_df.loc[index, 'Kategori'] = db_map[match]
             return _rekap_df
         
         main_store_df_cat = fuzzy_merge_categories(main_store_df.copy(), db_df)
@@ -199,9 +201,10 @@ with tab1:
     top_products['Omzet'] = top_products['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
     st.dataframe(top_products, use_container_width=True, hide_index=True)
 
-    st.subheader("3. Distribusi Penjualan Brand (Top 6)")
-    brand_sales = main_store_df.groupby('Brand')['Terjual per Bulan'].sum().nlargest(6).reset_index()
-    fig_brand_pie = px.pie(brand_sales, names='Brand', values='Terjual per Bulan', title='Top 6 Brand Terlaris')
+    st.subheader("3. Distribusi Omzet Brand (Top 6)")
+    brand_omzet_main = main_store_df.groupby('Brand')['Omzet'].sum().nlargest(6).reset_index()
+    fig_brand_pie = px.pie(brand_omzet_main, names='Brand', values='Omzet', title='Top 6 Brand Terlaris berdasarkan Omzet')
+    fig_brand_pie.update_traces(texttemplate='%{label}<br>%{percent}<br>Rp %{value:,.0f}')
     st.plotly_chart(fig_brand_pie, use_container_width=True)
 
 with tab2:
@@ -266,26 +269,30 @@ with tab3:
             st.subheader(f"Analisis untuk Kompetitor: {competitor_store}")
             single_competitor_df = competitor_df[competitor_df['Toko'] == competitor_store]
 
-            st.markdown("**Peringkat Brand (Omzet & Unit)**")
             brand_analysis = single_competitor_df.groupby('Brand').agg(
                 Total_Omzet=('Omzet', 'sum'),
                 Total_Unit_Terjual=('Terjual per Bulan', 'sum')
             ).reset_index().sort_values("Total_Omzet", ascending=False)
-            st.dataframe(brand_analysis, use_container_width=True, hide_index=True)
-
-            col1, col2 = st.columns(2)
+            
+            col1, col2 = st.columns([3,2])
             with col1:
+                st.markdown("**Peringkat Brand**")
+                brand_analysis_display = brand_analysis.copy()
+                brand_analysis_display['Total_Omzet'] = brand_analysis_display['Total_Omzet'].apply(lambda x: f"Rp {x:,.0f}")
+                st.dataframe(brand_analysis_display, use_container_width=True, hide_index=True)
+            with col2:
                 st.markdown("**Distribusi Omzet Brand (Top 6)**")
                 top_6_brands_omzet = brand_analysis.nlargest(6, 'Total_Omzet')
-                fig_pie_comp = px.pie(top_6_brands_omzet, names='Brand', values='Total_Omzet', title=f'Top 6 Brand di {competitor_store}')
+                fig_pie_comp = px.pie(top_6_brands_omzet, names='Brand', values='Total_Omzet')
+                fig_pie_comp.update_traces(texttemplate='%{label}<br>%{percent}<br>Rp %{value:,.0f}')
                 st.plotly_chart(fig_pie_comp, use_container_width=True)
-            with col2:
-                st.markdown("**Analisis Mendalam per Brand**")
-                brand_options = sorted([str(b) for b in single_competitor_df['Brand'].dropna().unique()])
-                if brand_options:
-                    inspect_brand = st.selectbox("Pilih Brand:", brand_options, key=f"select_brand_{competitor_store}")
-                    brand_detail = single_competitor_df[single_competitor_df['Brand'] == inspect_brand].sort_values("Terjual per Bulan", ascending=False)
-                    st.dataframe(brand_detail[['Nama Produk', 'Terjual per Bulan', 'Harga', 'Omzet']], use_container_width=True, hide_index=True)
+
+            st.markdown("**Analisis Mendalam per Brand**")
+            brand_options = sorted([str(b) for b in single_competitor_df['Brand'].dropna().unique()])
+            if brand_options:
+                inspect_brand = st.selectbox("Pilih Brand:", brand_options, key=f"select_brand_{competitor_store}")
+                brand_detail = single_competitor_df[single_competitor_df['Brand'] == inspect_brand].sort_values("Terjual per Bulan", ascending=False)
+                st.dataframe(brand_detail[['Nama Produk', 'Terjual per Bulan', 'Harga', 'Omzet']], use_container_width=True, hide_index=True)
             st.divider()
 
 with tab4:
@@ -324,3 +331,35 @@ with tab5:
         else:
             st.info(f"Tidak ada data untuk {store} pada rentang ini.")
         st.divider()
+
+# --- TAB BARU: ANALISIS PERTUMBUHAN & PRODUK BARU ---
+with tab6:
+    st.header("Analisis Pertumbuhan & Produk Baru")
+
+    st.subheader("1. Pertumbuhan Omzet Mingguan (WoW Growth) Kompetitor")
+    weekly_growth = df_filtered.groupby(['Toko', 'Minggu'])['Omzet'].sum().reset_index()
+    weekly_growth['WoW Growth (%)'] = weekly_growth.groupby('Toko')['Omzet'].pct_change() * 100
+    fig_wow = px.line(weekly_growth.dropna(), x='Minggu', y='WoW Growth (%)', color='Toko', markers=True, title='Pertumbuhan Omzet Mingguan (WoW) per Toko')
+    st.plotly_chart(fig_wow, use_container_width=True)
+
+    st.subheader("2. Perbandingan Produk Baru Antar Minggu")
+    unique_weeks = sorted(df_filtered['Minggu'].unique())
+    col1, col2 = st.columns(2)
+    week1 = col1.selectbox("Pilih Minggu Pembanding:", unique_weeks, index=0)
+    week2 = col2.selectbox("Pilih Minggu Penentu:", unique_weeks, index=len(unique_weeks)-1)
+
+    if week1 >= week2:
+        st.warning("Minggu Penentu harus setelah Minggu Pembanding.")
+    else:
+        products_w1 = set(df_filtered[df_filtered['Minggu'] == week1]['Nama Produk'].unique())
+        products_w2 = set(df_filtered[df_filtered['Minggu'] == week2]['Nama Produk'].unique())
+        
+        new_products_set = products_w2 - products_w1
+        
+        st.metric(f"Jumlah Produk Baru di Minggu {week2.strftime('%d %b')} vs {week1.strftime('%d %b')}", len(new_products_set))
+
+        if new_products_set:
+            new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products_set) & (df_filtered['Minggu'] == week2)]
+            st.dataframe(new_products_df[['Toko', 'Nama Produk', 'Harga', 'Status', 'Stok']].sort_values(by='Toko'), use_container_width=True, hide_index=True)
+        else:
+            st.success("Tidak ada produk baru yang ditemukan pada Minggu Penentu.")
