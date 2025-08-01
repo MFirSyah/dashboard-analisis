@@ -2,6 +2,7 @@
 #  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL
 #  Dibuat oleh: Firman & Asisten AI Gemini
 #  Metode Koneksi: Aman & Stabil (gspread + st.secrets individual)
+#  Peningkatan: Menggunakan st.session_state untuk stabilitas & fitur lengkap
 # ===================================================================================
 
 import streamlit as st
@@ -32,7 +33,7 @@ def load_data_from_gsheets():
         
     except Exception as e:
         st.error(f"GAGAL KONEKSI KE GOOGLE SHEETS: {e}")
-        st.warning("Pastikan 10 baris 'Secrets' sudah benar dan Google Sheet sudah di-share."); return pd.DataFrame(), pd.DataFrame(), None
+        st.warning("Pastikan 10 baris 'Secrets' sudah benar dan Google Sheet sudah di-share."); return None, None, None
 
     rekap_list_df, database_df = [], pd.DataFrame()
     sheet_names = [
@@ -62,12 +63,12 @@ def load_data_from_gsheets():
                     df_sheet['Status'] = 'Habis'
                 rekap_list_df.append(df_sheet)
     except gspread.exceptions.WorksheetNotFound as e:
-        st.error(f"GAGAL: Sheet '{e.args[0]}' tidak ditemukan. Periksa daftar 'sheet_names' di dalam kode."); return pd.DataFrame(), pd.DataFrame(), None
+        st.error(f"GAGAL: Sheet '{e.args[0]}' tidak ditemukan. Periksa daftar 'sheet_names' di dalam kode."); return None, None, None
     except Exception as e:
-        st.error(f"Gagal memproses sheet: {e}. Periksa format data di Google Sheets."); return pd.DataFrame(), pd.DataFrame(), None
+        st.error(f"Gagal memproses sheet: {e}. Periksa format data di Google Sheets."); return None, None, None
 
     if not rekap_list_df:
-        st.error("Tidak ada data REKAP yang dimuat."); return pd.DataFrame(), pd.DataFrame(), None
+        st.error("Tidak ada data REKAP yang dimuat."); return None, None, None
 
     rekap_df = pd.concat(rekap_list_df, ignore_index=True)
     my_store_name = "DB KLIK"
@@ -90,7 +91,7 @@ def load_data_from_gsheets():
     required_cols = ['Tanggal', 'Nama Produk', 'Harga', 'Terjual per Bulan']
     if not all(col in rekap_df.columns for col in required_cols):
         st.error(f"Kolom krusial hilang. Pastikan semua sheet REKAP memiliki: {required_cols}")
-        return pd.DataFrame(), pd.DataFrame(), my_store_name
+        return None, None, None
 
     rekap_df['Tanggal'] = pd.to_datetime(rekap_df['Tanggal'], errors='coerce', dayfirst=True)
     rekap_df['Harga'] = pd.to_numeric(rekap_df['Harga'], errors='coerce')
@@ -123,9 +124,25 @@ def format_wow_growth(pct_change):
 st.title("📊 Dashboard Analisis Penjualan & Kompetitor")
 st.sidebar.header("Kontrol Analisis")
 
+# --- PERBAIKAN UTAMA: Menggunakan Session State untuk Stabilitas ---
+if 'data_loaded' not in st.session_state:
+    st.session_state.data_loaded = False
+
 if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
-    df, db_df, my_store_name_from_db = load_data_from_gsheets()
-    if df.empty: st.stop()
+    df, db_df, my_store_name = load_data_from_gsheets()
+    if df is not None and not df.empty:
+        st.session_state.df = df
+        st.session_state.db_df = db_df
+        st.session_state.my_store_name = my_store_name
+        st.session_state.data_loaded = True
+        st.experimental_rerun() # Langsung jalankan ulang agar filter muncul
+    else:
+        st.session_state.data_loaded = False
+
+if st.session_state.data_loaded:
+    df = st.session_state.df
+    db_df = st.session_state.db_df
+    my_store_name_from_db = st.session_state.my_store_name
         
     st.sidebar.header("Filter & Pengaturan")
     all_stores = sorted(df['Toko'].unique())
@@ -201,51 +218,48 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
         st.dataframe(main_store_latest[cols_to_show], use_container_width=True, hide_index=True)
         
         st.subheader("3. Pilih Produk untuk Dibandingkan")
-        # --- PERBAIKAN: Menambahkan pemeriksaan data untuk mencegah error ---
-        if not main_store_latest.empty:
-            selected_product = st.selectbox("Pilih produk:", sorted(main_store_latest['Nama Produk'].unique()))
-            if selected_product:
-                product_info_df = main_store_latest[main_store_latest['Nama Produk'] == selected_product]
-                if not product_info_df.empty:
-                    product_info = product_info_df.iloc[0]
-                    
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric(f"Harga di {main_store}", f"Rp {product_info['Harga']:,.0f}")
-                    col2.metric(f"Status", product_info['Status'])
-                    col3.metric(f"Stok", product_info['Stok'])
+        search_query = st.text_input("Cari produk (ketik nama, brand, atau kata kunci):", key="product_search")
+        product_list = sorted(main_store_latest['Nama Produk'].unique())
+        if search_query:
+            product_list = [p for p in product_list if search_query.lower() in p.lower()]
 
-                    st.markdown("---")
-                    st.markdown(f"**Perbandingan di Toko Kompetitor:**")
-                    competitor_latest = competitor_df[competitor_df['Tanggal'] == latest_date]
-                    if not competitor_latest.empty:
-                        matches = get_smart_matches(product_info, competitor_latest, score_cutoff=accuracy_cutoff)
-                        if not matches:
-                            st.warning("Tidak ditemukan produk yang sangat mirip di toko kompetitor.")
-                        else:
-                            for product, score in matches:
-                                match_info_df = competitor_latest[competitor_latest['Nama Produk'] == product]
-                                if not match_info_df.empty:
-                                    match_info = match_info_df.iloc[0]
-                                    price_diff = match_info['Harga'] - product_info['Harga']
-                                    st.markdown(f"**Toko: {match_info['Toko']}** (Kemiripan Nama: {int(score)}%)")
-                                    c1, c2, c3 = st.columns(3)
-                                    c1.metric("Harga Kompetitor", f"Rp {match_info['Harga']:,.0f}", delta=f"Rp {price_diff:,.0f}", key=f"price_{match_info['Toko']}_{product}")
-                                    c2.metric("Status", match_info['Status'], key=f"status_{match_info['Toko']}_{product}")
-                                    c3.metric("Stok", match_info['Stok'], key=f"stok_{match_info['Toko']}_{product}")
+        selected_product = st.selectbox("Pilih produk dari hasil pencarian:", product_list)
+        
+        if selected_product:
+            product_info = main_store_latest[main_store_latest['Nama Produk'] == selected_product].iloc[0]
+            col1, col2, col3 = st.columns(3)
+            col1.metric(f"Harga di {main_store}", f"Rp {product_info['Harga']:,.0f}")
+            col2.metric(f"Status", product_info['Status'])
+            col3.metric(f"Stok", product_info['Stok'])
+
+            st.markdown("---")
+            st.markdown(f"**Perbandingan di Toko Kompetitor:**")
+            competitor_latest = competitor_df[competitor_df['Tanggal'] == latest_date]
+            matches = get_smart_matches(product_info, competitor_latest, score_cutoff=accuracy_cutoff)
+            if not matches:
+                st.warning("Tidak ditemukan produk yang sangat mirip di toko kompetitor.")
+            else:
+                for product, score in matches:
+                    match_info = competitor_latest[competitor_latest['Nama Produk'] == product].iloc[0]
+                    price_diff = match_info['Harga'] - product_info['Harga']
+                    
+                    st.markdown(f"**Toko: {match_info['Toko']}** (Kemiripan Nama: {int(score)}%)")
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Harga Kompetitor", f"Rp {match_info['Harga']:,.0f}", delta=f"Rp {price_diff:,.0f}")
+                    c2.metric("Status", match_info['Status'])
+                    c3.metric("Stok", match_info['Stok'])
     
     with tab3:
         st.header("Analisis Brand di Toko Kompetitor")
         if competitor_df.empty:
             st.warning("Tidak ada data kompetitor pada rentang tanggal ini.")
         else:
-            # --- FITUR BARU: Menambahkan analisis Omzet ---
             st.subheader("1. Peringkat Brand Kompetitor")
-            brand_analysis_comp = competitor_df.groupby(['Toko', 'Brand']).agg(
-                Penjualan_Unit=('Terjual per Bulan', 'sum'),
-                Total_Omzet=('Omzet', 'sum')
+            brand_analysis = competitor_df.groupby(['Toko', 'Brand']).agg(
+                Total_Omzet=('Omzet', 'sum'),
+                Total_Unit_Terjual=('Terjual per Bulan', 'sum')
             ).reset_index()
-            brand_analysis_comp['Total_Omzet_Formatted'] = brand_analysis_comp['Total_Omzet'].apply(lambda x: f"Rp {x:,.0f}")
-            st.dataframe(brand_analysis_comp[['Toko', 'Brand', 'Penjualan_Unit', 'Total_Omzet_Formatted']].rename(columns={'Penjualan_Unit': 'Total Unit Terjual', 'Total_Omzet_Formatted': 'Total Omzet'}), use_container_width=True, hide_index=True)
+            st.dataframe(brand_analysis.sort_values("Total_Omzet", ascending=False), use_container_width=True, hide_index=True)
 
             col1, col2 = st.columns(2)
             with col1:
@@ -258,7 +272,7 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
                 brand_options = sorted([str(b) for b in competitor_df['Brand'].dropna().unique()])
                 if brand_options:
                     inspect_brand = st.selectbox("Pilih Brand untuk dilihat:", brand_options)
-                    brand_detail = competitor_df[competitor_df['Brand'] == inspect_brand].sort_values("Terjual per Bulan", ascending=False)
+                    brand_detail = competitor_df[competitor_df['Brand'] == inspect_brand].sort_values("Omzet", ascending=False)
                     st.dataframe(brand_detail[['Toko', 'Nama Produk', 'Terjual per Bulan', 'Harga', 'Omzet']], use_container_width=True, hide_index=True)
                 else:
                     st.info("Tidak ada brand kompetitor untuk dianalisis.")
@@ -284,20 +298,21 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀"):
 
         st.subheader("2. Tabel Ringkasan Kinerja Mingguan per Toko")
         for store in all_stores:
-            with st.expander(f"Lihat Detail untuk: **{store}**"):
-                store_df = df_filtered[df_filtered['Toko'] == store]
-                weekly_summary = store_df.groupby('Minggu').agg(
-                    total_omzet=('Omzet', 'sum'),
-                    total_terjual=('Terjual per Bulan', 'sum'),
-                    avg_harga=('Harga', 'mean'),
-                    jumlah_hari=('Tanggal', 'nunique')
-                ).reset_index()
-                
-                if not weekly_summary.empty and weekly_summary['jumlah_hari'].sum() > 0:
-                    weekly_summary['Rata-Rata Terjual Harian'] = round(weekly_summary['total_terjual'] / weekly_summary['jumlah_hari'])
-                    st.dataframe(weekly_summary.rename(columns={'Minggu': 'Mulai Minggu', 'total_omzet': 'Total Omzet', 'total_terjual': 'Total Terjual', 'avg_harga': 'Rata-Rata Harga'}), use_container_width=True, hide_index=True)
-                else:
-                    st.info(f"Tidak ada data untuk {store} pada rentang ini.")
+            st.markdown(f"**Ringkasan untuk: {store}**")
+            store_df = df_filtered[df_filtered['Toko'] == store]
+            weekly_summary = store_df.groupby('Minggu').agg(
+                total_omzet=('Omzet', 'sum'),
+                total_terjual=('Terjual per Bulan', 'sum'),
+                avg_harga=('Harga', 'mean'),
+                jumlah_hari=('Tanggal', 'nunique')
+            ).reset_index()
+            
+            if not weekly_summary.empty and weekly_summary['jumlah_hari'].sum() > 0:
+                weekly_summary['Rata-Rata Terjual Harian'] = round(weekly_summary['total_terjual'] / weekly_summary['jumlah_hari'])
+                st.dataframe(weekly_summary.rename(columns={'Minggu': 'Mulai Minggu', 'total_omzet': 'Total Omzet', 'total_terjual': 'Total Terjual', 'avg_harga': 'Rata-Rata Harga'}), use_container_width=True, hide_index=True)
+            else:
+                st.info(f"Tidak ada data untuk {store} pada rentang ini.")
+            st.divider()
 else:
     st.info("👈 Klik tombol di sidebar untuk menarik data dan memulai analisis.")
     st.stop()
