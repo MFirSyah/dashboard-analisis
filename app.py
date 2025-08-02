@@ -316,6 +316,7 @@ with tab4:
 
 with tab5:
     st.header("Analisis Kinerja Penjualan (Semua Toko)")
+    
     st.subheader("1. Grafik Omzet Mingguan")
     weekly_omzet = df_filtered.groupby(['Minggu', 'Toko'])['Omzet'].sum().reset_index()
     fig_weekly_omzet = px.line(weekly_omzet, x='Minggu', y='Omzet', color='Toko', markers=True, title='Perbandingan Omzet Mingguan Antar Toko')
@@ -328,31 +329,26 @@ with tab5:
         weekly_summary = store_df.groupby('Minggu').agg(
             total_omzet=('Omzet', 'sum'),
             total_terjual=('Terjual per Bulan', 'sum'),
-            avg_harga=('Harga', 'mean'),
-            jumlah_hari=('Tanggal', 'nunique')
+            avg_harga=('Harga', 'mean')
         ).reset_index()
         
-        if not weekly_summary.empty and weekly_summary['jumlah_hari'].sum() > 0:
-            # --- PERBAIKAN 5: Rumus Rata-Rata Harian ---
+        if not weekly_summary.empty:
+            # --- PENAMBAHAN FITUR: Pertumbuhan Omzet (WoW) ---
+            weekly_summary['Pertumbuhan Omzet (WoW)'] = weekly_summary['total_omzet'].pct_change().apply(format_wow_growth)
+            
+            # --- PERBAIKAN RUMUS: Rata-Rata Harian ---
             weekly_summary['Rata-Rata Terjual Harian'] = round(weekly_summary['total_terjual'] / 30)
-            # --- PERBAIKAN 3: Format Rupiah ---
-            weekly_summary['total_omzet'] = weekly_summary['total_omzet'].apply(lambda x: f"Rp {x:,.0f}")
-            weekly_summary['avg_harga'] = weekly_summary['avg_harga'].apply(lambda x: f"Rp {x:,.0f}")
-            st.dataframe(weekly_summary.rename(columns={'Minggu': 'Mulai Minggu', 'total_omzet': 'Total Omzet', 'total_terjual': 'Total Terjual', 'avg_harga': 'Rata-Rata Harga'}), use_container_width=True, hide_index=True)
+
+            # --- FORMAT RUPIAH ---
+            weekly_summary['total_omzet_rp'] = weekly_summary['total_omzet'].apply(lambda x: f"Rp {x:,.0f}")
+            weekly_summary['avg_harga_rp'] = weekly_summary['avg_harga'].apply(lambda x: f"Rp {x:,.0f}")
+
+            st.dataframe(weekly_summary[['Minggu', 'total_omzet_rp', 'Pertumbuhan Omzet (WoW)', 'total_terjual', 'Rata-Rata Terjual Harian', 'avg_harga_rp']].rename(
+                columns={'Minggu': 'Mulai Minggu', 'total_omzet_rp': 'Total Omzet', 'total_terjual': 'Total Terjual', 'avg_harga_rp': 'Rata-Rata Harga'}
+            ), use_container_width=True, hide_index=True)
         else:
             st.info(f"Tidak ada data untuk {store} pada rentang ini.")
         st.divider()
-    
-    # --- PERBAIKAN 4: Pindah Grafik WoW Growth ke Sini ---
-    st.subheader("3. Grafik Pertumbuhan Omzet Mingguan (WoW Growth) per Toko")
-    weekly_omzet_all = df_filtered.groupby(['Minggu', 'Toko'])['Omzet'].sum().unstack()
-    wow_growth_all = weekly_omzet_all.pct_change() * 100
-    wow_growth_melted = wow_growth_all.reset_index().melt(id_vars='Minggu', var_name='Toko', value_name='Pertumbuhan WoW (%)')
-    
-    fig_wow_line = px.line(wow_growth_melted, x='Minggu', y='Pertumbuhan WoW (%)', color='Toko', markers=True,
-                        title='Tren Pertumbuhan Omzet Minggu-ke-Minggu per Toko')
-    fig_wow_line.update_traces(texttemplate='%{y:.1f}%', textposition='top center')
-    st.plotly_chart(fig_wow_line, use_container_width=True)
 
 with tab6:
     st.header("Analisis Produk Baru Mingguan")
@@ -382,4 +378,3 @@ with tab6:
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)]
                         new_products_df['Harga'] = new_products_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
                         st.dataframe(new_products_df[['Nama Produk', 'Harga', 'Stok', 'Terjual per Bulan']], use_container_width=True, hide_index=True)
-
