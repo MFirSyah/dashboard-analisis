@@ -37,7 +37,7 @@ def load_data_from_gsheets():
     rekap_list_df, database_df = [], pd.DataFrame()
     sheet_names = [
         "DATABASE", "DB KLIK - REKAP - READY", "DB KLIK - REKAP - HABIS",
-        "ABDITAMA - REKAP - READY", "ADDITAMA - REKAP - HABIS",
+        "ABDITAMA - REKAP - READY", "ABDITAMA - REKAP - HABIS",
         "LEVEL99 - REKAP - READY", "LEVEL99 - REKAP - HABIS",
         "JAYA PC - REKAP - READY", "JAYA PC - REKAP - HABIS",
         "MULTIFUNGSI - REKAP - READY", "MULTIFUNGSI - REKAP - HABIS",
@@ -382,3 +382,4 @@ with tab6:
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)]
                         new_products_df['Harga'] = new_products_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
                         st.dataframe(new_products_df[['Nama Produk', 'Harga', 'Stok', 'Terjual per Bulan']], use_container_width=True, hide_index=True)
+
