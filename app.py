@@ -223,7 +223,8 @@ with tab1:
                             "Terjual per Bulan",
                             format="%f",
                             min_value=0,
-                            max_value=max(1, products_in_category_df['Terjual per Bulan'].max()),
+                            # --- PERBAIKAN ERROR: Konversi max_value ke int ---
+                            max_value=int(max(1, products_in_category_df['Terjual per Bulan'].max())),
                         ),
                     }
                 )
