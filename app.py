@@ -196,17 +196,68 @@ with tab1:
         cat_sales_sorted = category_sales.sort_values('Terjual per Bulan', ascending=(sort_order_cat == "Kurang Laris")).head(top_n_cat)
         fig_cat = px.bar(cat_sales_sorted, x='Kategori', y='Terjual per Bulan', title=f'Top {top_n_cat} Kategori', text_auto=True)
         st.plotly_chart(fig_cat, use_container_width=True)
+
+        # --- FITUR BARU: Tabel Detail Produk per Kategori ---
+        st.markdown("---")
+        st.subheader("Detail Produk per Kategori")
+        top_categories_list = cat_sales_sorted['Kategori'].tolist()
+
+        if not top_categories_list:
+            st.warning("Tidak ada kategori untuk ditampilkan.")
+        else:
+            selected_category = st.selectbox("Pilih kategori untuk melihat detail produk:", top_categories_list, key="category_select_detail")
+            
+            if selected_category:
+                products_in_category_df = main_store_df_cat[main_store_df_cat['Kategori'] == selected_category].copy()
+                products_in_category_df = products_in_category_df.sort_values('Terjual per Bulan', ascending=False)
+                
+                products_in_category_df['Harga'] = products_in_category_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
+                products_in_category_df['Omzet'] = products_in_category_df['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
+                
+                st.dataframe(
+                    products_in_category_df[['Nama Produk', 'Harga', 'Terjual per Bulan', 'Omzet']],
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Terjual per Bulan": st.column_config.ProgressColumn(
+                            "Terjual per Bulan",
+                            format="%f",
+                            min_value=0,
+                            max_value=max(1, products_in_category_df['Terjual per Bulan'].max()),
+                        ),
+                    }
+                )
+        # --- AKHIR FITUR BARU ---
     
     st.subheader("2. Produk Terlaris")
     top_products = main_store_df.sort_values('Terjual per Bulan', ascending=False).head(15)[['Nama Produk', 'Terjual per Bulan', 'Omzet']]
     top_products['Omzet'] = top_products['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
     st.dataframe(top_products, use_container_width=True, hide_index=True)
 
-    st.subheader("3. Distribusi Omzet Brand (Top 6)")
-    brand_omzet_main = main_store_df.groupby('Brand')['Omzet'].sum().nlargest(6).reset_index()
-    fig_brand_pie = px.pie(brand_omzet_main, names='Brand', values='Omzet', title='Top 6 Brand Terlaris berdasarkan Omzet')
-    fig_brand_pie.update_traces(texttemplate='%{label}<br>%{percent}<br>Rp %{value:,.0f}')
-    st.plotly_chart(fig_brand_pie, use_container_width=True)
+    # --- PERUBAHAN: Visualisasi Omzet Brand dengan Pie & Bar Chart ---
+    st.subheader("3. Distribusi Omzet Brand")
+    brand_omzet_main = main_store_df.groupby('Brand')['Omzet'].sum().reset_index()
+
+    # Kontrol untuk chart
+    c_sort, c_top_n = st.columns(2)
+    sort_order_main = c_sort.radio("Urutkan Omzet Brand:", ["Terbesar", "Terkecil"], horizontal=True, key="main_brand_sort")
+    top_n_main = c_top_n.number_input("Tampilkan Top Brand:", 1, len(brand_omzet_main), 6, key="main_brand_top_n")
+
+    is_ascending_main = sort_order_main == "Terkecil"
+    chart_data_main = brand_omzet_main.sort_values('Omzet', ascending=is_ascending_main).head(top_n_main)
+
+    # Layout untuk chart
+    col1, col2 = st.columns(2)
+    with col1:
+        fig_brand_pie = px.pie(chart_data_main, names='Brand', values='Omzet', title=f'Distribusi Omzet Top {top_n_main} Brand')
+        fig_brand_pie.update_traces(texttemplate='%{label}<br>%{percent}<br>Rp %{value:,.0f}')
+        st.plotly_chart(fig_brand_pie, use_container_width=True)
+    with col2:
+        fig_brand_bar = px.bar(chart_data_main, x='Brand', y='Omzet', title=f"Detail Omzet Top {top_n_main} Brand", 
+                               text_auto='.2s', labels={'Omzet': 'Total Omzet (Rp)'})
+        fig_brand_bar.update_layout(yaxis_title="Total Omzet (Rp)")
+        st.plotly_chart(fig_brand_bar, use_container_width=True)
+    # --- AKHIR PERUBAHAN ---
 
 with tab2:
     st.header(f"Perbandingan Produk '{main_store}' dengan Kompetitor")
@@ -222,7 +273,6 @@ with tab2:
         latest_date = main_store_df['Tanggal'].max()
         main_store_latest = main_store_df[main_store_df['Tanggal'] == latest_date].copy()
         
-        # --- PERBAIKAN 1 & 3: Tambah Tanggal & Format Rupiah ---
         main_store_latest['Harga'] = main_store_latest['Harga'].apply(lambda x: f"Rp {x:,.0f}")
         cols_to_show = ['Tanggal', 'Nama Produk', 'Harga', 'Status', 'Stok']
         st.dataframe(main_store_latest[cols_to_show], use_container_width=True, hide_index=True)
@@ -240,7 +290,6 @@ with tab2:
             if selected_product:
                 product_info = main_store_latest[main_store_latest['Nama Produk'] == selected_product].iloc[0]
                 
-                # --- PERBAIKAN 2: Tampilkan Nama Produk Kompetitor ---
                 st.markdown(f"**Produk Pilihan Anda:** *{product_info['Nama Produk']}*")
                 col1, col2, col3 = st.columns(3)
                 col1.metric(f"Harga di {main_store}", product_info['Harga'])
@@ -281,34 +330,53 @@ with tab3:
                 Total_Unit_Terjual=('Terjual per Bulan', 'sum')
             ).reset_index().sort_values("Total_Omzet", ascending=False)
             
+            # --- PERUBAHAN: Kontrol dan Chart untuk Brand Kompetitor ---
+            st.write("**Pengaturan Visualisasi Brand**")
+            c_sort, c_top_n = st.columns(2)
+            sort_order_comp = c_sort.radio("Urutkan:", ["Terbesar", "Terkecil"], horizontal=True, key=f"comp_sort_{competitor_store}")
+            top_n_comp = c_top_n.number_input("Jumlah item:", 1, len(brand_analysis), 6, key=f"comp_top_n_{competitor_store}")
+            is_ascending_comp = sort_order_comp == "Terkecil"
+            chart_data = brand_analysis.sort_values("Total_Omzet", ascending=is_ascending_comp).head(top_n_comp)
+
             col1, col2 = st.columns([3,2])
             with col1:
-                st.markdown("**Peringkat Brand**")
-                # --- PERBAIKAN 3: Format Rupiah ---
-                brand_analysis['Total_Omzet'] = brand_analysis['Total_Omzet'].apply(lambda x: f"Rp {x:,.0f}")
-                st.dataframe(brand_analysis[['Brand', 'Total_Unit_Terjual', 'Total_Omzet']], use_container_width=True, hide_index=True)
+                st.markdown("**Peringkat Brand (Semua)**")
+                brand_analysis['Total_Omzet_Formatted'] = brand_analysis['Total_Omzet'].apply(lambda x: f"Rp {x:,.0f}")
+                st.dataframe(brand_analysis[['Brand', 'Total_Unit_Terjual', 'Total_Omzet_Formatted']].rename(columns={'Total_Omzet_Formatted': 'Total Omzet'}), use_container_width=True, hide_index=True)
             with col2:
-                top_6_brands_omzet = single_competitor_df.groupby('Brand')['Omzet'].sum().nlargest(6).reset_index()
-                fig_pie_comp = px.pie(top_6_brands_omzet, names='Brand', values='Omzet', title='Top 6 Brand Omzet')
-                # --- PERBAIKAN 1: Tambah Nilai & Format Rupiah di Pie Chart ---
+                st.markdown(f"**Visualisasi Top {top_n_comp} Brand**")
+                # Pie Chart
+                fig_pie_comp = px.pie(chart_data, names='Brand', values='Total_Omzet', title=f'Distribusi Omzet')
                 fig_pie_comp.update_traces(textinfo='percent+label', hovertemplate='<b>%{label}</b><br>Omzet: Rp %{value:,.0f}<br>Persentase: %{percent}')
                 st.plotly_chart(fig_pie_comp, use_container_width=True)
+
+                # Bar Chart
+                fig_bar_comp = px.bar(chart_data, x='Brand', y='Total_Omzet', title=f"Detail Omzet", text_auto='.2s', labels={'Total_Omzet': 'Total Omzet (Rp)'})
+                st.plotly_chart(fig_bar_comp, use_container_width=True)
 
             st.markdown("**Analisis Mendalam per Brand**")
             brand_options = sorted([str(b) for b in single_competitor_df['Brand'].dropna().unique()])
             if brand_options:
                 inspect_brand = st.selectbox("Pilih Brand untuk dilihat:", brand_options, key=f"select_brand_{competitor_store}")
                 brand_detail = single_competitor_df[single_competitor_df['Brand'] == inspect_brand].sort_values("Terjual per Bulan", ascending=False)
-                # --- PERBAIKAN 3: Format Rupiah ---
                 brand_detail['Harga'] = brand_detail['Harga'].apply(lambda x: f"Rp {x:,.0f}")
                 brand_detail['Omzet'] = brand_detail['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
                 st.dataframe(brand_detail[['Nama Produk', 'Terjual per Bulan', 'Harga', 'Omzet']], use_container_width=True, hide_index=True)
             st.divider()
+            # --- AKHIR PERUBAHAN ---
+
 
 with tab4:
     st.header("Tren Status Stok Mingguan per Toko")
     df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time).dt.date
     stock_trends = df_filtered.groupby(['Minggu', 'Toko', 'Status']).size().unstack(fill_value=0).reset_index()
+    
+    # Memastikan kolom 'Tersedia' dan 'Habis' ada
+    if 'Tersedia' not in stock_trends.columns:
+        stock_trends['Tersedia'] = 0
+    if 'Habis' not in stock_trends.columns:
+        stock_trends['Habis'] = 0
+        
     stock_trends_melted = stock_trends.melt(id_vars=['Minggu', 'Toko'], value_vars=['Tersedia', 'Habis'], var_name='Tipe Stok', value_name='Jumlah Produk')
     
     fig_stock_trends = px.line(stock_trends_melted, x='Minggu', y='Jumlah Produk', color='Toko', line_dash='Tipe Stok', markers=True, title='Jumlah Produk Tersedia vs. Habis per Minggu')
@@ -334,13 +402,8 @@ with tab5:
         ).reset_index()
         
         if not weekly_summary.empty:
-            # --- PENAMBAHAN FITUR: Pertumbuhan Omzet (WoW) ---
             weekly_summary['Pertumbuhan Omzet (WoW)'] = weekly_summary['total_omzet'].pct_change().apply(format_wow_growth)
-            
-            # --- PERBAIKAN RUMUS: Rata-Rata Harian ---
             weekly_summary['Rata-Rata Terjual Harian'] = round(weekly_summary['total_terjual'] / 30)
-
-            # --- FORMAT RUPIAH ---
             weekly_summary['total_omzet_rp'] = weekly_summary['total_omzet'].apply(lambda x: f"Rp {x:,.0f}")
             weekly_summary['avg_harga_rp'] = weekly_summary['avg_harga'].apply(lambda x: f"Rp {x:,.0f}")
 
@@ -379,4 +442,3 @@ with tab6:
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)]
                         new_products_df['Harga'] = new_products_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
                         st.dataframe(new_products_df[['Nama Produk', 'Harga', 'Stok', 'Terjual per Bulan']], use_container_width=True, hide_index=True)
-
