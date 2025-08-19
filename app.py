@@ -245,7 +245,7 @@ with tab1:
             for index, row in _rekap_df.iterrows():
                 if pd.notna(row['Nama Produk']):
                     match, score = process.extractOne(row['Nama Produk'], db_map.index, scorer=fuzz.token_set_ratio)
-                    if score >= 90:
+                    if score >= 80:
                         _rekap_df.loc[index, 'Kategori'] = db_map[match]
             return _rekap_df
         
@@ -534,4 +534,5 @@ with tab6:
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)]
                         new_products_df['Harga'] = new_products_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
                         st.dataframe(new_products_df[['Nama Produk', 'Harga', 'Stok', 'Terjual per Bulan']], use_container_width=True, hide_index=True)
+
 
