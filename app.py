@@ -24,7 +24,9 @@ st.set_page_config(layout="wide", page_title="Dashboard Analisis")
 # FUNGSI-FUNGSI UTAMA
 # ===================================================================================
 
-@st.cache_data(show_spinner="Mengambil data terbaru dari Google Sheets...", ttl=86400)
+# --- PERUBAHAN DI SINI: Menghapus ttl=86400 ---
+# Cache sekarang akan disimpan permanen sampai tombol "Hapus Cache" ditekan.
+@st.cache_data(show_spinner="Mengambil data terbaru dari Google Sheets...")
 def load_data_from_gsheets():
     # ... (sisa kode fungsi load_data_from_gsheets tetap sama)
     try:
@@ -299,7 +301,6 @@ with tab1:
     top_products['Omzet'] = top_products['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
     st.dataframe(top_products, use_container_width=True, hide_index=True)
 
-    # --- PERUBAHAN DIMULAI DI SINI ---
     st.subheader("3. Distribusi Omzet Brand")
     brand_omzet_main = main_store_df.groupby('Brand')['Omzet'].sum().reset_index()
 
@@ -308,17 +309,14 @@ with tab1:
         sort_order_main = c_sort.radio("Urutkan Omzet Brand:", ["Terbesar", "Terkecil"], horizontal=True, key="main_brand_sort")
         
         max_brands = len(brand_omzet_main)
-        # Batas untuk bar chart adalah 20, atau jumlah brand jika kurang dari 20
         max_bar_chart = min(20, max_brands)
         default_top_n = min(6, max_brands)
         top_n_main = c_top_n.number_input("Jumlah Brand di Bar Chart:", 1, max_bar_chart, default_top_n, key="main_brand_top_n")
 
         is_ascending_main = sort_order_main == "Terkecil"
         
-        # Data untuk Bar Chart (sesuai input user, maks 20)
         chart_data_bar_main = brand_omzet_main.sort_values('Omzet', ascending=is_ascending_main).head(top_n_main)
         
-        # Data untuk Pie Chart (maksimal 6)
         top_n_pie = min(top_n_main, 6)
         chart_data_pie_main = chart_data_bar_main.head(top_n_pie)
 
@@ -338,8 +336,8 @@ with tab1:
             st.plotly_chart(fig_brand_bar, use_container_width=True)
     else:
         st.info("Tidak ada data omzet brand untuk ditampilkan pada rentang ini.")
-    # --- PERUBAHAN SELESAI DI SINI ---
 
+# ... Sisa kode lainnya tetap sama persis ...
 # ===================================================================================
 # TAB 2: PERBANDINGAN HARGA
 # ===================================================================================
@@ -419,7 +417,6 @@ with tab3:
                 Total_Unit_Terjual=('Terjual per Bulan', 'sum')
             ).reset_index().sort_values("Total_Omzet", ascending=False)
             
-            # --- PERUBAHAN DIMULAI DI SINI ---
             if not brand_analysis.empty:
                 st.write("**Pengaturan Visualisasi Brand**")
                 c_sort, c_top_n = st.columns(2)
@@ -432,10 +429,8 @@ with tab3:
 
                 is_ascending_comp = sort_order_comp == "Terkecil"
                 
-                # Data untuk Bar Chart kompetitor
                 chart_data_bar_comp = brand_analysis.sort_values("Total_Omzet", ascending=is_ascending_comp).head(top_n_comp)
                 
-                # Data untuk Pie Chart kompetitor (maks 6)
                 top_n_pie_comp = min(top_n_comp, 6)
                 chart_data_pie_comp = chart_data_bar_comp.head(top_n_pie_comp)
 
@@ -446,15 +441,12 @@ with tab3:
                     st.dataframe(brand_analysis[['Brand', 'Total_Unit_Terjual', 'Total_Omzet_Formatted']].rename(columns={'Total_Omzet_Formatted': 'Total Omzet'}), use_container_width=True, hide_index=True)
                 with col2:
                     st.markdown(f"**Visualisasi Top Brand**")
-                    # Pie Chart
                     fig_pie_comp = px.pie(chart_data_pie_comp, names='Brand', values='Total_Omzet', title=f'Distribusi Omzet Top {top_n_pie_comp}')
                     fig_pie_comp.update_traces(textinfo='percent+label', hovertemplate='<b>%{label}</b><br>Omzet: Rp %{value:,.0f}<br>Persentase: %{percent}')
                     st.plotly_chart(fig_pie_comp, use_container_width=True)
 
-                    # Bar Chart
                     fig_bar_comp = px.bar(chart_data_bar_comp, x='Brand', y='Total_Omzet', title=f"Detail Omzet Top {top_n_comp}", text_auto='.2s', labels={'Total_Omzet': 'Total Omzet (Rp)'})
                     st.plotly_chart(fig_bar_comp, use_container_width=True)
-            # --- PERUBAHAN SELESAI DI SINI ---
             
             st.markdown("**Analisis Mendalam per Brand**")
             brand_options = sorted([str(b) for b in single_competitor_df['Brand'].dropna().unique()])
