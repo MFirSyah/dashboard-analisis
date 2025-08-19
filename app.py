@@ -254,11 +254,9 @@ with tab1:
             col1, col2 = st.columns([1,2])
             sort_order_cat = col1.radio("Urutkan:", ["Terlaris", "Kurang Laris"], horizontal=True, key="cat_sort")
             
-            # --- PERBAIKAN ERROR ---
             max_cat = len(category_sales)
             default_cat_top = min(10, max_cat)
             top_n_cat = col2.number_input("Tampilkan Top:", 1, max_cat, default_cat_top, key="cat_top_n")
-            # --- AKHIR PERBAIKAN ---
             
             cat_sales_sorted = category_sales.sort_values('Terjual per Bulan', ascending=(sort_order_cat == "Kurang Laris")).head(top_n_cat)
             fig_cat = px.bar(cat_sales_sorted, x='Kategori', y='Terjual per Bulan', title=f'Top {top_n_cat} Kategori', text_auto=True)
@@ -301,6 +299,7 @@ with tab1:
     top_products['Omzet'] = top_products['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
     st.dataframe(top_products, use_container_width=True, hide_index=True)
 
+    # --- PERUBAHAN DIMULAI DI SINI ---
     st.subheader("3. Distribusi Omzet Brand")
     brand_omzet_main = main_store_df.groupby('Brand')['Omzet'].sum().reset_index()
 
@@ -308,27 +307,38 @@ with tab1:
         c_sort, c_top_n = st.columns(2)
         sort_order_main = c_sort.radio("Urutkan Omzet Brand:", ["Terbesar", "Terkecil"], horizontal=True, key="main_brand_sort")
         
-        # --- PERBAIKAN ERROR ---
         max_brands = len(brand_omzet_main)
+        # Batas untuk bar chart adalah 20, atau jumlah brand jika kurang dari 20
+        max_bar_chart = min(20, max_brands)
         default_top_n = min(6, max_brands)
-        top_n_main = c_top_n.number_input("Tampilkan Top Brand:", 1, max_brands, default_top_n, key="main_brand_top_n")
-        # --- AKHIR PERBAIKAN ---
+        top_n_main = c_top_n.number_input("Jumlah Brand di Bar Chart:", 1, max_bar_chart, default_top_n, key="main_brand_top_n")
 
         is_ascending_main = sort_order_main == "Terkecil"
-        chart_data_main = brand_omzet_main.sort_values('Omzet', ascending=is_ascending_main).head(top_n_main)
+        
+        # Data untuk Bar Chart (sesuai input user, maks 20)
+        chart_data_bar_main = brand_omzet_main.sort_values('Omzet', ascending=is_ascending_main).head(top_n_main)
+        
+        # Data untuk Pie Chart (maksimal 6)
+        top_n_pie = min(top_n_main, 6)
+        chart_data_pie_main = chart_data_bar_main.head(top_n_pie)
 
         col1, col2 = st.columns(2)
         with col1:
-            fig_brand_pie = px.pie(chart_data_main, names='Brand', values='Omzet', title=f'Distribusi Omzet Top {top_n_main} Brand')
+            st.markdown(f"**Distribusi Omzet Top {top_n_pie} Brand**")
+            fig_brand_pie = px.pie(chart_data_pie_main, names='Brand', values='Omzet', 
+                                   title=f'Distribusi Omzet Top {top_n_pie} Brand')
             fig_brand_pie.update_traces(texttemplate='%{label}<br>%{percent}<br>Rp %{value:,.0f}')
             st.plotly_chart(fig_brand_pie, use_container_width=True)
         with col2:
-            fig_brand_bar = px.bar(chart_data_main, x='Brand', y='Omzet', title=f"Detail Omzet Top {top_n_main} Brand", 
+            st.markdown(f"**Detail Omzet Top {top_n_main} Brand**")
+            fig_brand_bar = px.bar(chart_data_bar_main, x='Brand', y='Omzet', 
+                                   title=f"Detail Omzet Top {top_n_main} Brand", 
                                    text_auto='.2s', labels={'Omzet': 'Total Omzet (Rp)'})
             fig_brand_bar.update_layout(yaxis_title="Total Omzet (Rp)")
             st.plotly_chart(fig_brand_bar, use_container_width=True)
     else:
         st.info("Tidak ada data omzet brand untuk ditampilkan pada rentang ini.")
+    # --- PERUBAHAN SELESAI DI SINI ---
 
 # ===================================================================================
 # TAB 2: PERBANDINGAN HARGA
@@ -409,19 +419,25 @@ with tab3:
                 Total_Unit_Terjual=('Terjual per Bulan', 'sum')
             ).reset_index().sort_values("Total_Omzet", ascending=False)
             
+            # --- PERUBAHAN DIMULAI DI SINI ---
             if not brand_analysis.empty:
                 st.write("**Pengaturan Visualisasi Brand**")
                 c_sort, c_top_n = st.columns(2)
                 sort_order_comp = c_sort.radio("Urutkan:", ["Terbesar", "Terkecil"], horizontal=True, key=f"comp_sort_{competitor_store}")
                 
-                # --- PERBAIKAN ERROR ---
                 max_comp_brands = len(brand_analysis)
+                max_bar_chart_comp = min(20, max_comp_brands)
                 default_comp_top_n = min(6, max_comp_brands)
-                top_n_comp = c_top_n.number_input("Jumlah item:", 1, max_comp_brands, default_comp_top_n, key=f"comp_top_n_{competitor_store}")
-                # --- AKHIR PERBAIKAN ---
+                top_n_comp = c_top_n.number_input("Jumlah Brand di Bar Chart:", 1, max_bar_chart_comp, default_comp_top_n, key=f"comp_top_n_{competitor_store}")
 
                 is_ascending_comp = sort_order_comp == "Terkecil"
-                chart_data = brand_analysis.sort_values("Total_Omzet", ascending=is_ascending_comp).head(top_n_comp)
+                
+                # Data untuk Bar Chart kompetitor
+                chart_data_bar_comp = brand_analysis.sort_values("Total_Omzet", ascending=is_ascending_comp).head(top_n_comp)
+                
+                # Data untuk Pie Chart kompetitor (maks 6)
+                top_n_pie_comp = min(top_n_comp, 6)
+                chart_data_pie_comp = chart_data_bar_comp.head(top_n_pie_comp)
 
                 col1, col2 = st.columns([3,2])
                 with col1:
@@ -429,13 +445,16 @@ with tab3:
                     brand_analysis['Total_Omzet_Formatted'] = brand_analysis['Total_Omzet'].apply(lambda x: f"Rp {x:,.0f}")
                     st.dataframe(brand_analysis[['Brand', 'Total_Unit_Terjual', 'Total_Omzet_Formatted']].rename(columns={'Total_Omzet_Formatted': 'Total Omzet'}), use_container_width=True, hide_index=True)
                 with col2:
-                    st.markdown(f"**Visualisasi Top {top_n_comp} Brand**")
-                    fig_pie_comp = px.pie(chart_data, names='Brand', values='Total_Omzet', title=f'Distribusi Omzet')
+                    st.markdown(f"**Visualisasi Top Brand**")
+                    # Pie Chart
+                    fig_pie_comp = px.pie(chart_data_pie_comp, names='Brand', values='Total_Omzet', title=f'Distribusi Omzet Top {top_n_pie_comp}')
                     fig_pie_comp.update_traces(textinfo='percent+label', hovertemplate='<b>%{label}</b><br>Omzet: Rp %{value:,.0f}<br>Persentase: %{percent}')
                     st.plotly_chart(fig_pie_comp, use_container_width=True)
 
-                    fig_bar_comp = px.bar(chart_data, x='Brand', y='Total_Omzet', title=f"Detail Omzet", text_auto='.2s', labels={'Total_Omzet': 'Total Omzet (Rp)'})
+                    # Bar Chart
+                    fig_bar_comp = px.bar(chart_data_bar_comp, x='Brand', y='Total_Omzet', title=f"Detail Omzet Top {top_n_comp}", text_auto='.2s', labels={'Total_Omzet': 'Total Omzet (Rp)'})
                     st.plotly_chart(fig_bar_comp, use_container_width=True)
+            # --- PERUBAHAN SELESAI DI SINI ---
             
             st.markdown("**Analisis Mendalam per Brand**")
             brand_options = sorted([str(b) for b in single_competitor_df['Brand'].dropna().unique()])
@@ -447,13 +466,12 @@ with tab3:
                 st.dataframe(brand_detail[['Nama Produk', 'Terjual per Bulan', 'Harga', 'Omzet']], use_container_width=True, hide_index=True)
             st.divider()
 
-# ... (sisa kode untuk Tab 4, 5, dan 6 sama persis)
+
 with tab4:
     st.header("Tren Status Stok Mingguan per Toko")
     df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time).dt.date
     stock_trends = df_filtered.groupby(['Minggu', 'Toko', 'Status']).size().unstack(fill_value=0).reset_index()
     
-    # Memastikan kolom 'Tersedia' dan 'Habis' ada
     if 'Tersedia' not in stock_trends.columns:
         stock_trends['Tersedia'] = 0
     if 'Habis' not in stock_trends.columns:
