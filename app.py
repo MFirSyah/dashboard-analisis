@@ -14,7 +14,6 @@ from thefuzz import process, fuzz
 import plotly.express as px
 import re
 import gspread
-from datetime import datetime
 
 # ===================================================================================
 # KONFIGURASI HALAMAN
@@ -25,10 +24,6 @@ st.set_page_config(layout="wide", page_title="Dashboard Analisis")
 # FUNGSI-FUNGSI UTAMA
 # ===================================================================================
 
-# --- PERBAIKAN 1: STRATEGI CACHING ---
-# Menggunakan cache dengan TTL yang sangat panjang (1 hari) untuk mensimulasikan
-# pengambilan data hanya sekali sehari. Tombol "Hapus Cache & Tarik Ulang"
-# ditambahkan untuk pembaruan manual jika diperlukan.
 @st.cache_data(show_spinner="Mengambil data terbaru dari Google Sheets...", ttl=86400)
 def load_data_from_gsheets():
     # ... (sisa kode fungsi load_data_from_gsheets tetap sama)
@@ -122,14 +117,8 @@ def load_data_from_gsheets():
 
     return rekap_df.sort_values('Tanggal'), database_df, my_store_name
 
-# --- PERBAIKAN 2 & 3: OPTIMISASI FUZZY MATCH & FIX SLIDER ---
-# Fungsi ini sekarang di-cache. Argumennya diubah menjadi tipe data primitif
-# (string, tuple) agar bisa di-cache. Ini akan mempercepat proses dan
-# mencegah error saat slider digeser.
 @st.cache_data(show_spinner=False)
 def get_smart_matches(query_name, competitor_product_list, score_cutoff=90):
-    """Mencari produk yang cocok menggunakan fuzzy matching."""
-    # competitor_product_list diharapkan sudah dalam bentuk tuple
     candidates = process.extract(query_name, competitor_product_list, limit=20, scorer=fuzz.token_set_ratio)
     return [match for match in candidates if match[1] >= score_cutoff][:5]
 
@@ -171,7 +160,6 @@ if st.sidebar.button("Tarik Data & Mulai Analisis 🚀", key="load_data_button")
         st.session_state.data_loaded = False
         st.sidebar.error("Gagal memuat data. Periksa pesan error di atas.")
 
-# --- Tombol untuk membersihkan cache ---
 if st.sidebar.button("Hapus Cache & Tarik Ulang 🔄", key="clear_cache_button"):
     st.cache_data.clear()
     st.success("Cache berhasil dihapus. Klik 'Tarik Data' untuk memuat ulang.")
@@ -184,9 +172,6 @@ if not st.session_state.data_loaded:
 df = st.session_state.df
 db_df = st.session_state.db_df
 my_store_name_from_db = st.session_state.my_store_name
-
-# ... (Sisa kode dari SIDEBAR: FILTER & PENGATURAN sampai akhir tetap sama,
-#      kecuali pada bagian pemanggilan get_smart_matches)
 
 # ===================================================================================
 # SIDEBAR: FILTER & PENGATURAN
@@ -242,8 +227,9 @@ st.sidebar.download_button(
 # ===================================================================================
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([f"⭐ Analisis Toko Saya ({main_store})", "⚖️ Perbandingan Harga", "🏆 Analisis Brand Kompetitor", "📦 Status Stok Produk", "📈 Kinerja Penjualan", "📊 Analisis Mingguan"])
 
-# ... (Kode untuk tab1 sama persis)
-
+# ===================================================================================
+# TAB 1: ANALISIS TOKO SAYA
+# ===================================================================================
 with tab1:
     st.header(f"Analisis Kinerja Toko: {main_store}")
     
@@ -264,79 +250,88 @@ with tab1:
         main_store_df_cat = fuzzy_merge_categories(main_store_df.copy(), db_df)
         category_sales = main_store_df_cat.groupby('Kategori')['Terjual per Bulan'].sum().reset_index()
         
-        col1, col2 = st.columns([1,2])
-        sort_order_cat = col1.radio("Urutkan:", ["Terlaris", "Kurang Laris"], horizontal=True, key="cat_sort")
-        top_n_cat = col2.number_input("Tampilkan Top:", 1, len(category_sales), 10, key="cat_top_n")
-        
-        cat_sales_sorted = category_sales.sort_values('Terjual per Bulan', ascending=(sort_order_cat == "Kurang Laris")).head(top_n_cat)
-        fig_cat = px.bar(cat_sales_sorted, x='Kategori', y='Terjual per Bulan', title=f'Top {top_n_cat} Kategori', text_auto=True)
-        st.plotly_chart(fig_cat, use_container_width=True)
-
-        # --- FITUR BARU: Tabel Detail Produk per Kategori ---
-        st.markdown("---")
-        st.subheader("Detail Produk per Kategori")
-        top_categories_list = cat_sales_sorted['Kategori'].tolist()
-
-        if not top_categories_list:
-            st.warning("Tidak ada kategori untuk ditampilkan.")
-        else:
-            selected_category = st.selectbox("Pilih kategori untuk melihat detail produk:", top_categories_list, key="category_select_detail")
+        if not category_sales.empty:
+            col1, col2 = st.columns([1,2])
+            sort_order_cat = col1.radio("Urutkan:", ["Terlaris", "Kurang Laris"], horizontal=True, key="cat_sort")
             
-            if selected_category:
-                products_in_category_df = main_store_df_cat[main_store_df_cat['Kategori'] == selected_category].copy()
-                products_in_category_df = products_in_category_df.sort_values('Terjual per Bulan', ascending=False)
+            # --- PERBAIKAN ERROR ---
+            max_cat = len(category_sales)
+            default_cat_top = min(10, max_cat)
+            top_n_cat = col2.number_input("Tampilkan Top:", 1, max_cat, default_cat_top, key="cat_top_n")
+            # --- AKHIR PERBAIKAN ---
+            
+            cat_sales_sorted = category_sales.sort_values('Terjual per Bulan', ascending=(sort_order_cat == "Kurang Laris")).head(top_n_cat)
+            fig_cat = px.bar(cat_sales_sorted, x='Kategori', y='Terjual per Bulan', title=f'Top {top_n_cat} Kategori', text_auto=True)
+            st.plotly_chart(fig_cat, use_container_width=True)
+
+            st.markdown("---")
+            st.subheader("Detail Produk per Kategori")
+            top_categories_list = cat_sales_sorted['Kategori'].tolist()
+
+            if not top_categories_list:
+                st.warning("Tidak ada kategori untuk ditampilkan.")
+            else:
+                selected_category = st.selectbox("Pilih kategori untuk melihat detail produk:", top_categories_list, key="category_select_detail")
                 
-                products_in_category_df['Harga'] = products_in_category_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
-                products_in_category_df['Omzet'] = products_in_category_df['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
-                
-                st.dataframe(
-                    products_in_category_df[['Nama Produk', 'Harga', 'Terjual per Bulan', 'Omzet']],
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Terjual per Bulan": st.column_config.ProgressColumn(
-                            "Terjual per Bulan",
-                            format="%f",
-                            min_value=0,
-                            # --- PERBAIKAN ERROR: Konversi max_value ke int ---
-                            max_value=int(max(1, products_in_category_df['Terjual per Bulan'].max())),
-                        ),
-                    }
-                )
-        # --- AKHIR FITUR BARU ---
+                if selected_category:
+                    products_in_category_df = main_store_df_cat[main_store_df_cat['Kategori'] == selected_category].copy()
+                    products_in_category_df = products_in_category_df.sort_values('Terjual per Bulan', ascending=False)
+                    
+                    products_in_category_df['Harga'] = products_in_category_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
+                    products_in_category_df['Omzet'] = products_in_category_df['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
+                    
+                    st.dataframe(
+                        products_in_category_df[['Nama Produk', 'Harga', 'Terjual per Bulan', 'Omzet']],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "Terjual per Bulan": st.column_config.ProgressColumn(
+                                "Terjual per Bulan",
+                                format="%f",
+                                min_value=0,
+                                max_value=int(max(1, products_in_category_df['Terjual per Bulan'].max())),
+                            ),
+                        }
+                    )
+        else:
+            st.info("Tidak ada data kategori penjualan untuk ditampilkan pada rentang ini.")
     
     st.subheader("2. Produk Terlaris")
     top_products = main_store_df.sort_values('Terjual per Bulan', ascending=False).head(15)[['Nama Produk', 'Terjual per Bulan', 'Omzet']]
     top_products['Omzet'] = top_products['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
     st.dataframe(top_products, use_container_width=True, hide_index=True)
 
-    # --- PERUBAHAN: Visualisasi Omzet Brand dengan Pie & Bar Chart ---
     st.subheader("3. Distribusi Omzet Brand")
     brand_omzet_main = main_store_df.groupby('Brand')['Omzet'].sum().reset_index()
 
-    # Kontrol untuk chart
-    c_sort, c_top_n = st.columns(2)
-    sort_order_main = c_sort.radio("Urutkan Omzet Brand:", ["Terbesar", "Terkecil"], horizontal=True, key="main_brand_sort")
-    top_n_main = c_top_n.number_input("Tampilkan Top Brand:", 1, len(brand_omzet_main), 6, key="main_brand_top_n")
+    if not brand_omzet_main.empty:
+        c_sort, c_top_n = st.columns(2)
+        sort_order_main = c_sort.radio("Urutkan Omzet Brand:", ["Terbesar", "Terkecil"], horizontal=True, key="main_brand_sort")
+        
+        # --- PERBAIKAN ERROR ---
+        max_brands = len(brand_omzet_main)
+        default_top_n = min(6, max_brands)
+        top_n_main = c_top_n.number_input("Tampilkan Top Brand:", 1, max_brands, default_top_n, key="main_brand_top_n")
+        # --- AKHIR PERBAIKAN ---
 
-    is_ascending_main = sort_order_main == "Terkecil"
-    chart_data_main = brand_omzet_main.sort_values('Omzet', ascending=is_ascending_main).head(top_n_main)
+        is_ascending_main = sort_order_main == "Terkecil"
+        chart_data_main = brand_omzet_main.sort_values('Omzet', ascending=is_ascending_main).head(top_n_main)
 
-    # Layout untuk chart
-    col1, col2 = st.columns(2)
-    with col1:
-        fig_brand_pie = px.pie(chart_data_main, names='Brand', values='Omzet', title=f'Distribusi Omzet Top {top_n_main} Brand')
-        fig_brand_pie.update_traces(texttemplate='%{label}<br>%{percent}<br>Rp %{value:,.0f}')
-        st.plotly_chart(fig_brand_pie, use_container_width=True)
-    with col2:
-        fig_brand_bar = px.bar(chart_data_main, x='Brand', y='Omzet', title=f"Detail Omzet Top {top_n_main} Brand", 
-                               text_auto='.2s', labels={'Omzet': 'Total Omzet (Rp)'})
-        fig_brand_bar.update_layout(yaxis_title="Total Omzet (Rp)")
-        st.plotly_chart(fig_brand_bar, use_container_width=True)
-    # --- AKHIR PERUBAHAN ---
+        col1, col2 = st.columns(2)
+        with col1:
+            fig_brand_pie = px.pie(chart_data_main, names='Brand', values='Omzet', title=f'Distribusi Omzet Top {top_n_main} Brand')
+            fig_brand_pie.update_traces(texttemplate='%{label}<br>%{percent}<br>Rp %{value:,.0f}')
+            st.plotly_chart(fig_brand_pie, use_container_width=True)
+        with col2:
+            fig_brand_bar = px.bar(chart_data_main, x='Brand', y='Omzet', title=f"Detail Omzet Top {top_n_main} Brand", 
+                                   text_auto='.2s', labels={'Omzet': 'Total Omzet (Rp)'})
+            fig_brand_bar.update_layout(yaxis_title="Total Omzet (Rp)")
+            st.plotly_chart(fig_brand_bar, use_container_width=True)
+    else:
+        st.info("Tidak ada data omzet brand untuk ditampilkan pada rentang ini.")
 
 # ===================================================================================
-# TAB 2: PERBANDINGAN HARGA (DENGAN PERBAIKAN)
+# TAB 2: PERBANDINGAN HARGA
 # ===================================================================================
 with tab2:
     st.header(f"Perbandingan Produk '{main_store}' dengan Kompetitor")
@@ -379,8 +374,6 @@ with tab2:
                 st.markdown(f"**Perbandingan di Toko Kompetitor:**")
                 competitor_latest = competitor_df[competitor_df['Tanggal'] == latest_date]
                 if not competitor_latest.empty:
-                    # --- PERUBAHAN PEMANGGILAN FUNGSI ---
-                    # Mengubah list produk menjadi tuple agar bisa di-cache
                     competitor_products_tuple = tuple(competitor_latest['Nama Produk'].tolist())
                     matches = get_smart_matches(product_info['Nama Produk'], competitor_products_tuple, score_cutoff=accuracy_cutoff)
                     
@@ -397,8 +390,10 @@ with tab2:
                             c1.metric("Harga Kompetitor", f"Rp {match_info['Harga']:,.0f}", delta=f"Rp {price_diff:,.0f}")
                             c2.metric("Status", match_info['Status'])
                             c3.metric("Stok", match_info['Stok'])
-                            
-# ... (Kode untuk tab3, tab4, tab5, dan tab6 sama persis)
+
+# ===================================================================================
+# TAB 3: ANALISIS BRAND KOMPETITOR
+# ===================================================================================
 with tab3:
     st.header("Analisis Brand di Toko Kompetitor")
     if competitor_df.empty:
@@ -414,30 +409,34 @@ with tab3:
                 Total_Unit_Terjual=('Terjual per Bulan', 'sum')
             ).reset_index().sort_values("Total_Omzet", ascending=False)
             
-            # --- PERUBAHAN: Kontrol dan Chart untuk Brand Kompetitor ---
-            st.write("**Pengaturan Visualisasi Brand**")
-            c_sort, c_top_n = st.columns(2)
-            sort_order_comp = c_sort.radio("Urutkan:", ["Terbesar", "Terkecil"], horizontal=True, key=f"comp_sort_{competitor_store}")
-            top_n_comp = c_top_n.number_input("Jumlah item:", 1, len(brand_analysis), 6, key=f"comp_top_n_{competitor_store}")
-            is_ascending_comp = sort_order_comp == "Terkecil"
-            chart_data = brand_analysis.sort_values("Total_Omzet", ascending=is_ascending_comp).head(top_n_comp)
+            if not brand_analysis.empty:
+                st.write("**Pengaturan Visualisasi Brand**")
+                c_sort, c_top_n = st.columns(2)
+                sort_order_comp = c_sort.radio("Urutkan:", ["Terbesar", "Terkecil"], horizontal=True, key=f"comp_sort_{competitor_store}")
+                
+                # --- PERBAIKAN ERROR ---
+                max_comp_brands = len(brand_analysis)
+                default_comp_top_n = min(6, max_comp_brands)
+                top_n_comp = c_top_n.number_input("Jumlah item:", 1, max_comp_brands, default_comp_top_n, key=f"comp_top_n_{competitor_store}")
+                # --- AKHIR PERBAIKAN ---
 
-            col1, col2 = st.columns([3,2])
-            with col1:
-                st.markdown("**Peringkat Brand (Semua)**")
-                brand_analysis['Total_Omzet_Formatted'] = brand_analysis['Total_Omzet'].apply(lambda x: f"Rp {x:,.0f}")
-                st.dataframe(brand_analysis[['Brand', 'Total_Unit_Terjual', 'Total_Omzet_Formatted']].rename(columns={'Total_Omzet_Formatted': 'Total Omzet'}), use_container_width=True, hide_index=True)
-            with col2:
-                st.markdown(f"**Visualisasi Top {top_n_comp} Brand**")
-                # Pie Chart
-                fig_pie_comp = px.pie(chart_data, names='Brand', values='Total_Omzet', title=f'Distribusi Omzet')
-                fig_pie_comp.update_traces(textinfo='percent+label', hovertemplate='<b>%{label}</b><br>Omzet: Rp %{value:,.0f}<br>Persentase: %{percent}')
-                st.plotly_chart(fig_pie_comp, use_container_width=True)
+                is_ascending_comp = sort_order_comp == "Terkecil"
+                chart_data = brand_analysis.sort_values("Total_Omzet", ascending=is_ascending_comp).head(top_n_comp)
 
-                # Bar Chart
-                fig_bar_comp = px.bar(chart_data, x='Brand', y='Total_Omzet', title=f"Detail Omzet", text_auto='.2s', labels={'Total_Omzet': 'Total Omzet (Rp)'})
-                st.plotly_chart(fig_bar_comp, use_container_width=True)
+                col1, col2 = st.columns([3,2])
+                with col1:
+                    st.markdown("**Peringkat Brand (Semua)**")
+                    brand_analysis['Total_Omzet_Formatted'] = brand_analysis['Total_Omzet'].apply(lambda x: f"Rp {x:,.0f}")
+                    st.dataframe(brand_analysis[['Brand', 'Total_Unit_Terjual', 'Total_Omzet_Formatted']].rename(columns={'Total_Omzet_Formatted': 'Total Omzet'}), use_container_width=True, hide_index=True)
+                with col2:
+                    st.markdown(f"**Visualisasi Top {top_n_comp} Brand**")
+                    fig_pie_comp = px.pie(chart_data, names='Brand', values='Total_Omzet', title=f'Distribusi Omzet')
+                    fig_pie_comp.update_traces(textinfo='percent+label', hovertemplate='<b>%{label}</b><br>Omzet: Rp %{value:,.0f}<br>Persentase: %{percent}')
+                    st.plotly_chart(fig_pie_comp, use_container_width=True)
 
+                    fig_bar_comp = px.bar(chart_data, x='Brand', y='Total_Omzet', title=f"Detail Omzet", text_auto='.2s', labels={'Total_Omzet': 'Total Omzet (Rp)'})
+                    st.plotly_chart(fig_bar_comp, use_container_width=True)
+            
             st.markdown("**Analisis Mendalam per Brand**")
             brand_options = sorted([str(b) for b in single_competitor_df['Brand'].dropna().unique()])
             if brand_options:
@@ -447,9 +446,8 @@ with tab3:
                 brand_detail['Omzet'] = brand_detail['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
                 st.dataframe(brand_detail[['Nama Produk', 'Terjual per Bulan', 'Harga', 'Omzet']], use_container_width=True, hide_index=True)
             st.divider()
-            # --- AKHIR PERUBAHAN ---
 
-
+# ... (sisa kode untuk Tab 4, 5, dan 6 sama persis)
 with tab4:
     st.header("Tren Status Stok Mingguan per Toko")
     df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time).dt.date
