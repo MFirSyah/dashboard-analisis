@@ -298,15 +298,17 @@ with tab1:
                     products_in_category_df = main_store_df_cat[main_store_df_cat['Kategori'] == selected_category].copy()
                     products_in_category_df = products_in_category_df.sort_values('Terjual per Bulan', ascending=False)
                     
-                    # PERBAIKAN POIN 1: Menambahkan kolom baru dan format
                     products_in_category_df['Harga_rp'] = products_in_category_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
                     products_in_category_df['Omzet_rp'] = products_in_category_df['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
                     products_in_category_df['Tanggal_fmt'] = products_in_category_df['Tanggal'].dt.strftime('%Y-%m-%d')
                     
+                    display_df_cat = products_in_category_df[['Nama Produk', 'Harga_rp', 'Terjual per Bulan', 'Omzet_rp', 'Tanggal_fmt', 'Perbandingan minggu lalu']].rename(
+                        columns={'Harga_rp': 'Harga', 'Omzet_rp': 'Omzet', 'Tanggal_fmt': 'Tanggal'}
+                    )
+                    styled_df_cat = display_df_cat.style.apply(lambda s: s.map(style_wow_growth), subset=['Perbandingan minggu lalu'])
+
                     st.dataframe(
-                        products_in_category_df[['Nama Produk', 'Harga_rp', 'Terjual per Bulan', 'Omzet_rp', 'Tanggal_fmt', 'Perbandingan minggu lalu']].rename(
-                            columns={'Harga_rp': 'Harga', 'Omzet_rp': 'Omzet', 'Tanggal_fmt': 'Tanggal'}
-                        ),
+                        styled_df_cat,
                         use_container_width=True,
                         hide_index=True,
                         column_config={
@@ -322,15 +324,18 @@ with tab1:
             st.info("Tidak ada data kategori penjualan untuk ditampilkan pada rentang ini.")
     
     st.subheader("2. Produk Terlaris")
-    # PERBAIKAN POIN 2: Menyesuaikan kolom sesuai permintaan
     top_products = main_store_df.sort_values('Terjual per Bulan', ascending=False).head(15).copy()
     top_products['Harga_rp'] = top_products['Harga'].apply(lambda x: f"Rp {x:,.0f}")
     top_products['Omzet_rp'] = top_products['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
     top_products['Tanggal_fmt'] = top_products['Tanggal'].dt.strftime('%Y-%m-%d')
+    
+    display_df_top = top_products[['Nama Produk', 'Harga_rp', 'Omzet_rp', 'Tanggal_fmt', 'Perbandingan minggu lalu']].rename(
+        columns={'Harga_rp': 'Harga', 'Omzet_rp': 'Omzet', 'Tanggal_fmt': 'Tanggal'}
+    )
+    styled_df_top = display_df_top.style.apply(lambda s: s.map(style_wow_growth), subset=['Perbandingan minggu lalu'])
+
     st.dataframe(
-        top_products[['Nama Produk', 'Harga_rp', 'Omzet_rp', 'Tanggal_fmt', 'Perbandingan minggu lalu']].rename(
-            columns={'Harga_rp': 'Harga', 'Omzet_rp': 'Omzet', 'Tanggal_fmt': 'Tanggal'}
-        ), 
+        styled_df_top, 
         use_container_width=True, 
         hide_index=True
     )
@@ -583,3 +588,4 @@ with tab6:
                         
                         # PERBAIKAN POIN 4: Menambahkan kolom 'Brand'
                         st.dataframe(new_products_df[['Nama Produk', 'Harga', 'Stok', 'Terjual per Bulan', 'Brand']], use_container_width=True, hide_index=True)
+
