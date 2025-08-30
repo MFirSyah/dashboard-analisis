@@ -124,12 +124,24 @@ def get_smart_matches(query_name, competitor_product_list, score_cutoff=90):
     candidates = process.extract(query_name, competitor_product_list, limit=20, scorer=fuzz.token_set_ratio)
     return [match for match in candidates if match[1] >= score_cutoff][:5]
 
-# PERBAIKAN 3: Menambahkan markdown warna pada fungsi format
 def format_wow_growth(pct_change):
     if pd.isna(pct_change) or pct_change == float('inf'): return "N/A"
-    elif pct_change > 0.001: return f":green[▲ {pct_change:.1%}]"
-    elif pct_change < -0.001: return f":red[▼ {pct_change:.1%}]"
+    elif pct_change > 0.001: return f"▲ {pct_change:.1%}"
+    elif pct_change < -0.001: return f"▼ {pct_change:.1%}"
     else: return f"▬ 0.0%"
+
+# PERBAIKAN POIN 3: Fungsi untuk memberi warna pada pertumbuhan WoW
+def style_wow_growth(val):
+    """
+    Memberi warna hijau untuk naik, merah untuk turun, dan hitam untuk netral.
+    """
+    color = 'black' # Warna default
+    if isinstance(val, str):
+        if '▲' in val:
+            color = 'green'
+        elif '▼' in val:
+            color = 'red'
+    return f'color: {color}'
 
 # ===================================================================================
 # FUNGSI UNTUK EKSPOR DATA
@@ -199,50 +211,6 @@ if df_filtered.empty:
     st.error("Tidak ada data pada rentang tanggal yang dipilih."); st.stop()
 
 df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time).dt.date
-
-# PENAMBAHAN 1 & 2: LOGIKA BARU UNTUK PERBANDINGAN MINGGUAN
-df_filtered['Minggu'] = pd.to_datetime(df_filtered['Minggu'])
-
-# Agregasi data per minggu untuk menghitung perbandingan
-weekly_sales = df_filtered.sort_values('Tanggal').groupby(['Toko', 'Nama Produk', 'Minggu']).agg(
-    Terjual_Mingguan=('Terjual per Bulan', 'last')
-).reset_index()
-
-weekly_sales = weekly_sales.sort_values(['Toko', 'Nama Produk', 'Minggu'])
-weekly_sales['Terjual Sebelumnya'] = weekly_sales.groupby(['Toko', 'Nama Produk'])['Terjual_Mingguan'].shift(1)
-
-def format_comparison(row):
-    current_sales = row['Terjual_Mingguan']
-    prev_sales = row['Terjual Sebelumnya']
-    
-    if pd.isna(prev_sales):
-        return "🚀 Baru" 
-    if prev_sales == 0:
-        if current_sales > 0:
-            return ":green[▲ ∞%]"
-        else:
-            return "▬ 0.0%" 
-    
-    change = (current_sales - prev_sales) / prev_sales
-    
-    if change > 0.001:
-        return f":green[▲ {change:.1%}]"
-    elif change < -0.001:
-        return f":red[▼ {change:.1%}]"
-    else:
-        return "▬ 0.0%"
-
-weekly_sales['Perbandingan minggu lalu'] = weekly_sales.apply(format_comparison, axis=1)
-
-# Gabungkan hasil perbandingan kembali ke dataframe utama
-df_filtered = pd.merge(
-    df_filtered,
-    weekly_sales[['Toko', 'Nama Produk', 'Minggu', 'Perbandingan minggu lalu']],
-    on=['Toko', 'Nama Produk', 'Minggu'],
-    how='left'
-)
-# --- AKHIR LOGIC BARU ---
-
 main_store_df = df_filtered[df_filtered['Toko'] == main_store].copy()
 competitor_df = df_filtered[df_filtered['Toko'] != main_store].copy()
 
@@ -279,6 +247,14 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([f"⭐ Analisis Toko Saya ({main_st
 # ===================================================================================
 with tab1:
     st.header(f"Analisis Kinerja Toko: {main_store}")
+
+    # PERBAIKAN POIN 1 & 2: Menambahkan kolom perbandingan minggu lalu
+    # Lakukan perhitungan ini di awal agar bisa dipakai di kedua tabel
+    main_store_df = main_store_df.sort_values(['Nama Produk', 'Tanggal'])
+    main_store_df['Terjual Minggu Lalu'] = main_store_df.groupby('Nama Produk')['Terjual per Bulan'].shift(1)
+    main_store_df['Perbandingan minggu lalu'] = (main_store_df['Terjual per Bulan'] - main_store_df['Terjual Minggu Lalu']) / main_store_df['Terjual Minggu Lalu']
+    main_store_df['Perbandingan minggu lalu'] = main_store_df['Perbandingan minggu lalu'].apply(format_wow_growth)
+    main_store_df['Perbandingan minggu lalu'].fillna('Baru', inplace=True) # Ganti NaN dengan 'Baru'
     
     st.subheader("1. Kategori Produk Terlaris")
     if not db_df.empty and 'KATEGORI' in db_df.columns and 'NAMA' in db_df.columns:
@@ -319,58 +295,46 @@ with tab1:
                 selected_category = st.selectbox("Pilih kategori untuk melihat detail produk:", top_categories_list, key="category_select_detail")
                 
                 if selected_category:
-                    # PERBAIKAN 1: Menambahkan kolom Tanggal dan Perbandingan minggu lalu
                     products_in_category_df = main_store_df_cat[main_store_df_cat['Kategori'] == selected_category].copy()
+                    products_in_category_df = products_in_category_df.sort_values('Terjual per Bulan', ascending=False)
                     
-                    # Ambil data terbaru untuk setiap produk dalam kategori
-                    latest_products_in_cat = products_in_category_df.sort_values('Tanggal', ascending=False).drop_duplicates('Nama Produk')
-                    latest_products_in_cat = latest_products_in_cat.sort_values('Terjual per Bulan', ascending=False)
-                    
-                    latest_products_in_cat['Harga'] = latest_products_in_cat['Harga'].apply(lambda x: f"Rp {x:,.0f}")
-                    latest_products_in_cat['Omzet'] = latest_products_in_cat['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
+                    # PERBAIKAN POIN 1: Menambahkan kolom baru dan format
+                    products_in_category_df['Harga_rp'] = products_in_category_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
+                    products_in_category_df['Omzet_rp'] = products_in_category_df['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
+                    products_in_category_df['Tanggal_fmt'] = products_in_category_df['Tanggal'].dt.strftime('%Y-%m-%d')
                     
                     st.dataframe(
-                        latest_products_in_cat[['Nama Produk', 'Harga', 'Terjual per Bulan', 'Omzet', 'Tanggal', 'Perbandingan minggu lalu']],
+                        products_in_category_df[['Nama Produk', 'Harga_rp', 'Terjual per Bulan', 'Omzet_rp', 'Tanggal_fmt', 'Perbandingan minggu lalu']].rename(
+                            columns={'Harga_rp': 'Harga', 'Omzet_rp': 'Omzet', 'Tanggal_fmt': 'Tanggal'}
+                        ),
                         use_container_width=True,
                         hide_index=True,
                         column_config={
                             "Terjual per Bulan": st.column_config.ProgressColumn(
                                 "Terjual per Bulan",
-                                format="%f",
+                                format="%d",
                                 min_value=0,
-                                max_value=int(max(1, latest_products_in_cat['Terjual per Bulan'].max())),
-                            ),
-                             "Tanggal": st.column_config.DateColumn(
-                                "Tanggal",
-                                format="DD-MM-YYYY",
+                                max_value=int(max(1, products_in_category_df['Terjual per Bulan'].max())),
                             ),
                         }
                     )
         else:
             st.info("Tidak ada data kategori penjualan untuk ditampilkan pada rentang ini.")
     
-    # PERBAIKAN 2: Mengubah tabel produk terlaris
     st.subheader("2. Produk Terlaris")
-    # Ambil data terbaru untuk setiap produk, lalu urutkan
-    latest_products_df = main_store_df.sort_values('Tanggal', ascending=False).drop_duplicates('Nama Produk')
-    top_products = latest_products_df.sort_values('Terjual per Bulan', ascending=False).head(15)
-
-    # Format kolom
-    top_products['Harga'] = top_products['Harga'].apply(lambda x: f"Rp {x:,.0f}")
-    top_products['Omzet'] = top_products['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
-
-    # Tampilkan kolom yang diminta
+    # PERBAIKAN POIN 2: Menyesuaikan kolom sesuai permintaan
+    top_products = main_store_df.sort_values('Terjual per Bulan', ascending=False).head(15).copy()
+    top_products['Harga_rp'] = top_products['Harga'].apply(lambda x: f"Rp {x:,.0f}")
+    top_products['Omzet_rp'] = top_products['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
+    top_products['Tanggal_fmt'] = top_products['Tanggal'].dt.strftime('%Y-%m-%d')
     st.dataframe(
-        top_products[['Nama Produk', 'Harga', 'Omzet', 'Tanggal', 'Perbandingan minggu lalu']],
+        top_products[['Nama Produk', 'Harga_rp', 'Omzet_rp', 'Tanggal_fmt', 'Perbandingan minggu lalu']].rename(
+            columns={'Harga_rp': 'Harga', 'Omzet_rp': 'Omzet', 'Tanggal_fmt': 'Tanggal'}
+        ), 
         use_container_width=True, 
-        hide_index=True,
-        column_config={
-            "Tanggal": st.column_config.DateColumn(
-                "Tanggal Update",
-                format="DD-MM-YYYY",
-            )
-        }
+        hide_index=True
     )
+
 
     st.subheader("3. Distribusi Omzet Brand")
     brand_omzet_main = main_store_df.groupby('Brand')['Omzet'].sum().reset_index()
@@ -408,7 +372,6 @@ with tab1:
     else:
         st.info("Tidak ada data omzet brand untuk ditampilkan pada rentang ini.")
 
-# ... Sisa kode lainnya tetap sama persis ...
 # ===================================================================================
 # TAB 2: PERBANDINGAN HARGA
 # ===================================================================================
@@ -570,9 +533,15 @@ with tab5:
             weekly_summary['total_omzet_rp'] = weekly_summary['total_omzet'].apply(lambda x: f"Rp {x:,.0f}")
             weekly_summary['avg_harga_rp'] = weekly_summary['avg_harga'].apply(lambda x: f"Rp {x:,.0f}")
 
-            st.dataframe(weekly_summary[['Minggu', 'total_omzet_rp', 'Pertumbuhan Omzet (WoW)', 'total_terjual', 'Rata-Rata Terjual Harian', 'avg_harga_rp']].rename(
+            # PERBAIKAN POIN 3: Menerapkan styling untuk warna
+            display_df = weekly_summary[['Minggu', 'total_omzet_rp', 'Pertumbuhan Omzet (WoW)', 'total_terjual', 'Rata-Rata Terjual Harian', 'avg_harga_rp']].rename(
                 columns={'Minggu': 'Mulai Minggu', 'total_omzet_rp': 'Total Omzet', 'total_terjual': 'Total Terjual', 'avg_harga_rp': 'Rata-Rata Harga'}
-            ), use_container_width=True, hide_index=True)
+            )
+            
+            styled_df = display_df.style.apply(lambda s: s.map(style_wow_growth), subset=['Pertumbuhan Omzet (WoW)'])
+            
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+
         else:
             st.info(f"Tidak ada data untuk {store} pada rentang ini.")
         st.divider()
@@ -594,15 +563,23 @@ with tab6:
         else:
             for store in all_stores:
                 with st.expander(f"Lihat Produk Baru di Toko: **{store}**"):
-                    products_before = set(df_filtered[(df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_before)]['Nama Produk'])
-                    products_after = set(df_filtered[(df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)]['Nama Produk'])
+                    # PERBAIKAN POIN 4: Filter hanya produk dengan status 'Tersedia' ('READY')
+                    products_before = set(df_filtered[(df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_before) & (df_filtered['Status'] == 'Tersedia')]['Nama Produk'])
+                    products_after = set(df_filtered[(df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after) & (df_filtered['Status'] == 'Tersedia')]['Nama Produk'])
                     new_products = products_after - products_before
                     
                     if not new_products:
-                        st.write("Tidak ada produk baru yang terdeteksi.")
+                        st.write("Tidak ada produk baru yang terdeteksi (hanya status 'Tersedia' yang diperiksa).")
                     else:
-                        st.write(f"Ditemukan **{len(new_products)}** produk baru:")
-                        new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)]
+                        st.write(f"Ditemukan **{len(new_products)}** produk baru (status 'Tersedia'):")
+                        new_products_df = df_filtered[
+                            df_filtered['Nama Produk'].isin(new_products) & 
+                            (df_filtered['Toko'] == store) & 
+                            (df_filtered['Minggu'] == week_after) &
+                            (df_filtered['Status'] == 'Tersedia')
+                        ].copy()
+
                         new_products_df['Harga'] = new_products_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
-                        # PERBAIKAN 4: Menambahkan kolom Brand
+                        
+                        # PERBAIKAN POIN 4: Menambahkan kolom 'Brand'
                         st.dataframe(new_products_df[['Nama Produk', 'Harga', 'Stok', 'Terjual per Bulan', 'Brand']], use_container_width=True, hide_index=True)
