@@ -1,7 +1,8 @@
 streamlit
 pandas
-thefuzz
-python-Levenshtein
-plotly
 gspread
+oauth2client
+fuzzywuzzy
+python-levenshtein
+plotly
 numpy
