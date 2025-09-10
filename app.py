@@ -43,35 +43,38 @@ def tarik_data_dari_gsheet(spreadsheet_id, sheet_names):
         for name in sheet_names:
             worksheet = spreadsheet.worksheet(name)
             
-            # --- PERBAIKAN ERROR HEADER DUPLIKAT ---
             all_values = worksheet.get_all_values()
             if not all_values or not all_values[0]:
-                df = pd.DataFrame() # Handle jika sheet kosong atau tidak punya header
+                df = pd.DataFrame()
             else:
                 headers = all_values[0]
                 data = all_values[1:]
                 
-                # Logika ini membangun ulang data, mengabaikan kolom dengan header kosong
                 processed_records = []
                 for row in data:
                     record = {}
                     for i, header in enumerate(headers):
-                        if header:  # Kunci: Abaikan header jika string kosong ''
+                        if header:
                             try:
                                 record[header] = row[i]
                             except IndexError:
-                                record[header] = None # Handle jika baris lebih pendek dari header
+                                record[header] = None
                     if record:
                         processed_records.append(record)
                 
                 if processed_records:
                     df = pd.DataFrame(processed_records)
                 else:
-                    # Buat DataFrame kosong dengan kolom yang benar jika tidak ada baris data
                     df = pd.DataFrame(columns=[h for h in headers if h])
-            # --- AKHIR DARI PERBAIKAN ---
 
-            # Konversi kolom yang relevan ke numerik, ganti error dengan NaN
+            # --- PERBAIKAN: Standarisasi Nama Kolom ---
+            df.rename(columns={
+                'NAMA': 'Nama Produk',
+                'TERJUAL/BLN': 'Terjual/Bulan',
+                'BRAND': 'Brand'
+            }, inplace=True)
+            # --- AKHIR PERBAIKAN ---
+
             for col in ['Harga', 'Terjual/Bulan', 'Omzet', 'Stok']:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False), errors='coerce')
@@ -97,8 +100,7 @@ def preprocess_data(data_frames, start_date, end_date):
         df_filtered = df.dropna(subset=['Tanggal'])
         df_filtered = df_filtered[(df_filtered['Tanggal'] >= start_date) & (df_filtered['Tanggal'] <= end_date)].copy()
         
-        if 'Nama Produk' in df_filtered.columns:
-            df_filtered['Brand'] = df_filtered['Nama Produk'].apply(lambda x: str(x).split(' ')[0] if isinstance(x, str) else 'Unknown')
+        # Logika ekstraksi Brand dihapus karena Brand sudah ada dari sumber (setelah standarisasi)
         
         if 'Omzet' not in df_filtered.columns and 'Harga' in df_filtered.columns and 'Terjual/Bulan' in df_filtered.columns:
             df_filtered['Omzet'] = df_filtered['Harga'] * df_filtered['Terjual/Bulan']
@@ -222,11 +224,14 @@ else:
         db_klik_habis = processed_data.get("DB KLIK - REKAP - HABIS", pd.DataFrame())
         df_db_klik_full = pd.concat([db_klik_ready, db_klik_habis]) if not db_klik_ready.empty or not db_klik_habis.empty else pd.DataFrame()
         
+        # --- PERBAIKAN: Inisialisasi df_db_klik untuk mencegah KeyError ---
+        df_db_klik = pd.DataFrame()
         if not df_db_klik_full.empty:
             df_db_klik = df_db_klik_full.sort_values('Tanggal', ascending=False).drop_duplicates('Nama Produk', keep='first')
             @st.cache_data
             def convert_df(df): return df.to_csv(index=False).encode('utf-8')
             st.download_button(label="📥 Unduh Data CSV", data=convert_df(df_db_klik), file_name=f"db_klik_data.csv", mime="text/csv")
+        # --- AKHIR PERBAIKAN ---
 
     st.title("Hasil Analisis E-commerce")
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📈 Analisis DB KLIK", "⚖️ Perbandingan Produk", "🏢 Analisis Kompetitor", "📦 Tren Stok", "💰 Omzet Toko", "🆕 Produk Baru"])
