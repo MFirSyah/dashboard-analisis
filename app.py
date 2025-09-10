@@ -239,50 +239,60 @@ else:
     with tab1:
         st.header("Analisis Kinerja Toko DB KLIK")
         if df_db_klik.empty:
-            st.warning("Tidak ada data untuk DB KLIK pada rentang TANGGAL yang dipilih.")
+            st.warning("Tidak ada data untuk DB KLIK pada rentang tanggal yang dipilih.")
         else:
             df_database = processed_data.get("DATABASE", pd.DataFrame())
+            # Buat DataFrame dengan kategori terlebih dahulu
             df_db_klik_kategori = fuzzy_match_kategori(df_db_klik.copy(), df_database, fuzzy_threshold)
             
-            st.subheader("1. Analisis Kategori Terlaris (Berdasarkan Omzet)")
-            kategori_omzet = df_db_klik_kategori.groupby('Kategori')['Omzet'].sum().sort_values(ascending=False).reset_index()
-            col1, col2 = st.columns([1,3])
-            sort_order = col1.radio("Urutkan Kategori", ["Terlaris", "Paling Tidak Laris"])
-            num_bars = col1.slider("Jumlah Kategori", 1, len(kategori_omzet), min(10, len(kategori_omzet)))
-            if sort_order == "Paling Tidak Laris": kategori_omzet = kategori_omzet.sort_values('Omzet', ascending=True)
-            fig_kategori = px.bar(kategori_omzet.head(num_bars), x='Omzet', y='Kategori', orientation='h', title=f'Top {num_bars} Kategori', text='Omzet', labels={'Omzet': 'Total Omzet (Rp)', 'Kategori': 'Kategori'})
-            fig_kategori.update_traces(texttemplate='Rp%{text:,.0f}', textposition='outside')
-            fig_kategori.update_layout(yaxis={'categoryorder':'total ascending'})
-            col2.plotly_chart(fig_kategori, use_container_width=True)
-            
-            st.subheader("Produk Terlaris per Kategori")
-            selected_kategori = st.selectbox("Pilih Kategori", kategori_omzet['Kategori'].unique())
-            produk_per_kategori = df_db_klik_kategori[df_db_klik_kategori['Kategori'] == selected_kategori].sort_values('Omzet', ascending=False)
-            produk_per_kategori['Status'] = np.where(produk_per_kategori['Nama Produk'].isin(db_klik_ready['Nama Produk']), 'READY', 'HABIS')
-            st.dataframe(produk_per_kategori[['Nama Produk', 'Harga', 'Terjual/Bulan', 'Status']].rename(columns={'Harga': 'Harga Terakhir', 'Terjual/Bulan': 'Terjual/Bulan Terakhir'}), use_container_width=True)
+            # --- PERBAIKAN DIMULAI DI SINI ---
+            # Periksa apakah kolom Omzet ada SEBELUM melakukan analisis
+            if 'Omzet' in df_db_klik_kategori.columns:
+                st.subheader("1. Analisis Kategori Terlaris (Berdasarkan Omzet)")
+                kategori_omzet = df_db_klik_kategori.groupby('Kategori')['Omzet'].sum().sort_values(ascending=False).reset_index()
+                col1, col2 = st.columns([1,3])
+                sort_order = col1.radio("Urutkan Kategori", ["Terlaris", "Paling Tidak Laris"])
+                num_bars = col1.slider("Jumlah Kategori", 1, len(kategori_omzet), min(10, len(kategori_omzet)))
+                if sort_order == "Paling Tidak Laris": kategori_omzet = kategori_omzet.sort_values('Omzet', ascending=True)
+                fig_kategori = px.bar(kategori_omzet.head(num_bars), x='Omzet', y='Kategori', orientation='h', title=f'Top {num_bars} Kategori', text='Omzet', labels={'Omzet': 'Total Omzet (Rp)', 'Kategori': 'Kategori'})
+                fig_kategori.update_traces(texttemplate='Rp%{text:,.0f}', textposition='outside')
+                fig_kategori.update_layout(yaxis={'categoryorder':'total ascending'})
+                col2.plotly_chart(fig_kategori, use_container_width=True)
+                
+                st.subheader("Produk Terlaris per Kategori")
+                selected_kategori = st.selectbox("Pilih Kategori", kategori_omzet['Kategori'].unique())
+                produk_per_kategori = df_db_klik_kategori[df_db_klik_kategori['Kategori'] == selected_kategori].sort_values('Omzet', ascending=False)
+                produk_per_kategori['Status'] = np.where(produk_per_kategori['Nama Produk'].isin(db_klik_ready['Nama Produk']), 'READY', 'HABIS')
+                st.dataframe(produk_per_kategori[['Nama Produk', 'Harga', 'Terjual/Bulan', 'Status']].rename(columns={'Harga': 'Harga Terakhir', 'Terjual/Bulan': 'Terjual/Bulan Terakhir'}), use_container_width=True)
 
-            st.subheader("2. Produk Terlaris (Global)")
-            df_db_klik_full['Minggu'] = df_db_klik_full['TANGGAL'].dt.to_period('W')
-            produk_terkini = df_db_klik_full.sort_values('TANGGAL').drop_duplicates('Nama Produk', keep='last')
-            produk_minggu_lalu = df_db_klik_full[df_db_klik_full['Minggu'] == (produk_terkini['Minggu'].max() - 1)].sort_values('TANGGAL').drop_duplicates('Nama Produk', keep='last')
-            merged_produk = pd.merge(produk_terkini, produk_minggu_lalu[['Nama Produk', 'Omzet']], on='Nama Produk', how='left', suffixes=('', '_lalu'))
-            merged_produk['Indikator'] = ((merged_produk['Omzet'] - merged_produk['Omzet_lalu']) / merged_produk['Omzet_lalu'].replace(0,1)) * 100
-            merged_produk['Indikator'] = merged_produk['Indikator'].apply(format_indicator)
-            st.dataframe(merged_produk[['Nama Produk', 'Harga', 'Terjual/Bulan', 'Omzet', 'TANGGAL', 'Indikator']].sort_values('Omzet', ascending=False), use_container_width=True)
+                st.subheader("2. Produk Terlaris (Global)")
+                df_db_klik_full['Minggu'] = df_db_klik_full['Tanggal'].dt.to_period('W')
+                produk_terkini = df_db_klik_full.sort_values('Tanggal').drop_duplicates('Nama Produk', keep='last')
+                produk_minggu_lalu = df_db_klik_full[df_db_klik_full['Minggu'] == (produk_terkini['Minggu'].max() - 1)].sort_values('Tanggal').drop_duplicates('Nama Produk', keep='last')
+                merged_produk = pd.merge(produk_terkini, produk_minggu_lalu[['Nama Produk', 'Omzet']], on='Nama Produk', how='left', suffixes=('', '_lalu'))
+                merged_produk['Indikator'] = ((merged_produk['Omzet'] - merged_produk['Omzet_lalu']) / merged_produk['Omzet_lalu'].replace(0,1)) * 100
+                merged_produk['Indikator'] = merged_produk['Indikator'].apply(format_indicator)
+                st.dataframe(merged_produk[['Nama Produk', 'Harga', 'Terjual/Bulan', 'Omzet', 'Tanggal', 'Indikator']].sort_values('Omzet', ascending=False), use_container_width=True)
 
-            st.subheader("3. Distribusi Omzet Brand")
-            brand_omzet = df_db_klik_kategori.groupby('Brand')['Omzet'].sum().sort_values(ascending=False).reset_index()
-            fig_brand = px.pie(brand_omzet.head(10), values='Omzet', names='Brand', title='Distribusi Omzet 10 Brand Teratas', hover_data=['Omzet'])
-            fig_brand.update_traces(textposition='inside', textinfo='percent+label', hovertemplate='Brand: %{label}<br>Omzet: Rp%{value:,.0f}<extra></extra>')
-            st.plotly_chart(fig_brand, use_container_width=True)
+                st.subheader("3. Distribusi Omzet Brand")
+                brand_omzet = df_db_klik_kategori.groupby('Brand')['Omzet'].sum().sort_values(ascending=False).reset_index()
+                fig_brand = px.pie(brand_omzet.head(10), values='Omzet', names='Brand', title='Distribusi Omzet 10 Brand Teratas', hover_data=['Omzet'])
+                fig_brand.update_traces(textposition='inside', textinfo='percent+label', hovertemplate='Brand: %{label}<br>Omzet: Rp%{value:,.0f}<extra></extra>')
+                st.plotly_chart(fig_brand, use_container_width=True)
 
-            st.subheader("4. Ringkasan Kinerja Mingguan (WoW Growth)")
-            df_db_klik_full['Minggu'] = df_db_klik_full['TANGGAL'].dt.to_period('W').apply(lambda r: r.start_time).dt.date
-            kinerja_mingguan = df_db_klik_full.groupby('Minggu').agg(Omzet=('Omzet', 'sum'), Penjualan_Unit=('Terjual/Bulan', 'sum')).sort_index().reset_index()
-            kinerja_mingguan['Pertumbuhan Omzet'] = ((kinerja_mingguan['Omzet'] - kinerja_mingguan['Omzet'].shift(1)) / kinerja_mingguan['Omzet'].shift(1).replace(0,1)) * 100
-            kinerja_mingguan['Pertumbuhan Omzet'] = kinerja_mingguan['Pertumbuhan Omzet'].apply(format_indicator)
-            st.dataframe(kinerja_mingguan[['Minggu', 'Omzet', 'Penjualan_Unit', 'Pertumbuhan Omzet']], use_container_width=True)
-
+                st.subheader("4. Ringkasan Kinerja Mingguan (WoW Growth)")
+                df_db_klik_full['Minggu'] = df_db_klik_full['Tanggal'].dt.to_period('W').apply(lambda r: r.start_time).dt.date
+                kinerja_mingguan = df_db_klik_full.groupby('Minggu').agg(Omzet=('Omzet', 'sum'), Penjualan_Unit=('Terjual/Bulan', 'sum')).sort_index().reset_index()
+                kinerja_mingguan['Pertumbuhan Omzet'] = ((kinerja_mingguan['Omzet'] - kinerja_mingguan['Omzet'].shift(1)) / kinerja_mingguan['Omzet'].shift(1).replace(0,1)) * 100
+                kinerja_mingguan['Pertumbuhan Omzet'] = kinerja_mingguan['Pertumbuhan Omzet'].apply(format_indicator)
+                st.dataframe(kinerja_mingguan[['Minggu', 'Omzet', 'Penjualan_Unit', 'Pertumbuhan Omzet']], use_container_width=True)
+            else:
+                # Tampilkan pesan jika kolom Omzet tidak ada
+                st.error("❌ Analisis Berdasarkan Omzet Gagal")
+                st.warning("Kolom 'Omzet' tidak dapat ditemukan atau dihitung. Pastikan sheet 'DB KLIK' memiliki kolom **'Harga'** dan **'Terjual/Bulan'** yang valid.")
+                st.info("Menampilkan data dasar yang tersedia:")
+                st.dataframe(df_db_klik_kategori)
+            # --- AKHIR PERBAIKAN ---
     with tab2:
         st.header("⚖️ Pilih Produk untuk Dibandingkan")
         all_products_list = df_db_klik['Nama Produk'].unique().tolist() if not df_db_klik.empty else []
@@ -464,5 +474,6 @@ else:
                     st.warning("Minggu target dan pembanding tidak boleh sama.")
         else:
             st.warning("Tidak ada data produk yang cukup untuk analisis produk baru.")
+
 
 
