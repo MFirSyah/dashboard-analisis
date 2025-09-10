@@ -239,7 +239,7 @@ else:
     with tab1:
         st.header("Analisis Kinerja Toko DB KLIK")
         if df_db_klik.empty:
-            st.warning("Tidak ada data untuk DB KLIK pada rentang tanggal yang dipilih.")
+            st.warning("Tidak ada data untuk DB KLIK pada rentang TANGGAL yang dipilih.")
         else:
             df_database = processed_data.get("DATABASE", pd.DataFrame())
             # Buat DataFrame dengan kategori terlebih dahulu
@@ -266,13 +266,13 @@ else:
                 st.dataframe(produk_per_kategori[['NAMA', 'HARGA', 'Terjual/Bulan', 'Status']].rename(columns={'HARGA': 'HARGA Terakhir', 'Terjual/Bulan': 'Terjual/Bulan Terakhir'}), use_container_width=True)
 
                 st.subheader("2. Produk Terlaris (Global)")
-                df_db_klik_full['Minggu'] = df_db_klik_full['Tanggal'].dt.to_period('W')
-                produk_terkini = df_db_klik_full.sort_values('Tanggal').drop_duplicates('NAMA', keep='last')
-                produk_minggu_lalu = df_db_klik_full[df_db_klik_full['Minggu'] == (produk_terkini['Minggu'].max() - 1)].sort_values('Tanggal').drop_duplicates('NAMA', keep='last')
+                df_db_klik_full['Minggu'] = df_db_klik_full['TANGGAL'].dt.to_period('W')
+                produk_terkini = df_db_klik_full.sort_values('TANGGAL').drop_duplicates('NAMA', keep='last')
+                produk_minggu_lalu = df_db_klik_full[df_db_klik_full['Minggu'] == (produk_terkini['Minggu'].max() - 1)].sort_values('TANGGAL').drop_duplicates('NAMA', keep='last')
                 merged_produk = pd.merge(produk_terkini, produk_minggu_lalu[['NAMA', 'Omzet']], on='NAMA', how='left', suffixes=('', '_lalu'))
                 merged_produk['Indikator'] = ((merged_produk['Omzet'] - merged_produk['Omzet_lalu']) / merged_produk['Omzet_lalu'].replace(0,1)) * 100
                 merged_produk['Indikator'] = merged_produk['Indikator'].apply(format_indicator)
-                st.dataframe(merged_produk[['NAMA', 'HARGA', 'Terjual/Bulan', 'Omzet', 'Tanggal', 'Indikator']].sort_values('Omzet', ascending=False), use_container_width=True)
+                st.dataframe(merged_produk[['NAMA', 'HARGA', 'Terjual/Bulan', 'Omzet', 'TANGGAL', 'Indikator']].sort_values('Omzet', ascending=False), use_container_width=True)
 
                 st.subheader("3. Distribusi Omzet BRAND")
                 BRAND_omzet = df_db_klik_kategori.groupby('BRAND')['Omzet'].sum().sort_values(ascending=False).reset_index()
@@ -281,7 +281,7 @@ else:
                 st.plotly_chart(fig_BRAND, use_container_width=True)
 
                 st.subheader("4. Ringkasan Kinerja Mingguan (WoW Growth)")
-                df_db_klik_full['Minggu'] = df_db_klik_full['Tanggal'].dt.to_period('W').apply(lambda r: r.start_time).dt.date
+                df_db_klik_full['Minggu'] = df_db_klik_full['TANGGAL'].dt.to_period('W').apply(lambda r: r.start_time).dt.date
                 kinerja_mingguan = df_db_klik_full.groupby('Minggu').agg(Omzet=('Omzet', 'sum'), Penjualan_Unit=('Terjual/Bulan', 'sum')).sort_index().reset_index()
                 kinerja_mingguan['Pertumbuhan Omzet'] = ((kinerja_mingguan['Omzet'] - kinerja_mingguan['Omzet'].shift(1)) / kinerja_mingguan['Omzet'].shift(1).replace(0,1)) * 100
                 kinerja_mingguan['Pertumbuhan Omzet'] = kinerja_mingguan['Pertumbuhan Omzet'].apply(format_indicator)
@@ -474,6 +474,7 @@ else:
                     st.warning("Minggu target dan pembanding tidak boleh sama.")
         else:
             st.warning("Tidak ada data produk yang cukup untuk analisis produk baru.")
+
 
 
 
