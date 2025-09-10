@@ -1,8 +1,8 @@
 # ===================================================================================
-#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL V5
+#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL V6
 #  Dibuat oleh: Firman & Asisten AI Gemini
 #  Metode Koneksi: Aman & Stabil (gspread + st.secrets individual)
-#  Peningkatan: Penambahan Normalisasi Nama Produk untuk Akurasi
+#  Peningkatan: Simplifikasi Logika Kalkulasi Mingguan Tab 1
 # ===================================================================================
 
 # ===================================================================================
@@ -97,9 +97,6 @@ def load_data_from_gsheets():
     final_rename_mapping = {'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga', 'BRAND': 'Brand', 'STOK': 'Stok', 'TOKO': 'Toko', 'STATUS': 'Status'}
     rekap_df.rename(columns=final_rename_mapping, inplace=True)
     
-    # --- [PERBAIKAN KUNCI] ---
-    # Normalisasi nama produk untuk menghilangkan spasi ekstra di awal/akhir
-    # yang bisa menyebabkan salah hitung pada saat agregasi.
     if 'Nama Produk' in rekap_df.columns:
         rekap_df['Nama Produk'] = rekap_df['Nama Produk'].astype(str).str.strip()
 
@@ -300,20 +297,34 @@ with tab1:
 
     st.subheader(f"{section_counter}. Ringkasan Kinerja Mingguan (WoW Growth)")
     section_counter += 1
-    # --- MENGGUNAKAN LOGIKA YANG SAMA DENGAN TAB 5 ---
-    # 1. Agregasi semua toko dari data snapshot mingguan
-    weekly_summary_all = latest_entries_weekly.groupby(['Minggu', 'Toko']).agg(
+    # --- [PERUBAHAN SESUAI PERMINTAAN] ---
+    # Logika ini sekarang mengambil data mentah KHUSUS DB KLIK (`main_store_df`),
+    # lalu menyaringnya untuk mendapatkan snapshot terakhir per produk per minggu.
+    # Ini untuk memastikan tidak ada penghitungan ganda dan hasilnya akurat.
+    
+    # 1. Ambil data snapshot terakhir per produk per minggu dari data mentah DB KLIK.
+    # `idxmax()` menemukan indeks dari tanggal (Tanggal) maksimum untuk setiap grup.
+    main_store_latest_weekly = main_store_df.loc[main_store_df.groupby(['Minggu', 'Nama Produk'])['Tanggal'].idxmax()]
+    
+    # 2. Agregasi (jumlahkan) omzet dan unit terjual dari data yang sudah disaring tersebut.
+    weekly_summary_tab1 = main_store_latest_weekly.groupby('Minggu').agg(
         Omzet=('Omzet', 'sum'),
         Penjualan_Unit=('Terjual per Bulan', 'sum')
     ).reset_index()
     
-    # 2. Filter hanya untuk toko "DB KLIK"
-    weekly_summary_tab1 = weekly_summary_all[weekly_summary_all['Toko'] == my_store_name].copy()
+    # Urutkan berdasarkan minggu untuk perhitungan pertumbuhan yang benar.
     weekly_summary_tab1.sort_values('Minggu', inplace=True) 
     
     weekly_summary_tab1['Pertumbuhan Omzet (WoW)'] = weekly_summary_tab1['Omzet'].pct_change().apply(format_wow_growth)
     weekly_summary_tab1['Omzet'] = weekly_summary_tab1['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
-    st.dataframe(weekly_summary_tab1[['Minggu', 'Omzet', 'Penjualan_Unit', 'Pertumbuhan Omzet (WoW)']].style.apply(lambda s: s.map(style_wow_growth), subset=['Pertumbuhan Omzet (WoW)']), use_container_width=True, hide_index=True)
+    st.dataframe(
+        weekly_summary_tab1[['Minggu', 'Omzet', 'Penjualan_Unit', 'Pertumbuhan Omzet (WoW)']].style.apply(
+            lambda s: s.map(style_wow_growth), subset=['Pertumbuhan Omzet (WoW)']
+        ), 
+        use_container_width=True, 
+        hide_index=True
+    )
+
 
 with tab2:
     st.header(f"Perbandingan Produk '{my_store_name}' dengan Kompetitor")
