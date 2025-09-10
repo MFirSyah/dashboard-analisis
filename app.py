@@ -83,8 +83,12 @@ def load_data_from_gsheets(gsheet_key):
                         df['Toko'] = toko
                         df['Status'] = 'READY' if 'READY' in sheet_name.upper() else 'HABIS'
                         rekap_list.append(df)
+                except gspread.exceptions.WorksheetNotFound:
+                    # Jika sheet tidak ditemukan, berikan peringatan dan lanjutkan ke sheet berikutnya.
+                    st.warning(f"Sheet '{sheet_name}' tidak ditemukan, dilewati.")
+                    continue
     except Exception as e:
-        st.error(f"Gagal memuat sheet '{sheet_name}': {e}")
+        st.error(f"Gagal memuat sheet: {e}")
         return None, None
 
     if not rekap_list:
@@ -589,3 +593,4 @@ with tab6:
         st.warning("Minggu Target harus setelah Minggu Pembanding.")
     else:
         st.info("Pilih dua minggu yang berbeda untuk memulai perbandingan.")
+
