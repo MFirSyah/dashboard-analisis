@@ -258,21 +258,31 @@ with tab1:
             fig_cat = px.bar(cat_sales_sorted, x='Kategori', y='Terjual per Bulan', title=f'Top {top_n_cat} Kategori', text_auto=True)
             st.plotly_chart(fig_cat, use_container_width=True)
 
-    st.subheader(f"{section_counter}. Produk Terlaris")
+       st.subheader(f"{section_counter}. Ringkasan Kinerja Mingguan (WoW Growth)")
     section_counter += 1
-    # --- PERBAIKAN TABEL PRODUK TERLARIS DIMULAI DI SINI ---
-    top_products = main_store_df.sort_values('Terjual per Bulan', ascending=False).head(15).copy()
-    top_products['Harga_rp'] = top_products['Harga'].apply(lambda x: f"Rp {x:,.0f}")
-    top_products['Omzet_rp'] = top_products['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
-    top_products['Tanggal_fmt'] = top_products['Tanggal'].dt.strftime('%Y-%m-%d')
-    
-    display_df_top = top_products[['Nama Produk', 'Harga_rp', 'Omzet_rp', 'Tanggal_fmt', 'Perbandingan minggu lalu']].rename(
-        columns={'Harga_rp': 'Harga', 'Omzet_rp': 'Omzet', 'Tanggal_fmt': 'Tanggal'}
+    # --- PERBAIKAN KALKULASI OMZET MINGGUAN ---
+    # Menjumlahkan omzet dan unit penjualan per minggu
+    weekly_summary_tab1 = main_store_df.groupby('Minggu').agg(
+        Omzet=('Omzet', 'sum'),
+        Penjualan_Unit=('Terjual per Bulan', 'sum')
+    ).reset_index()
+
+    # Hitung pertumbuhan WoW berdasarkan total omzet mingguan
+    weekly_summary_tab1['Pertumbuhan Omzet (WoW)'] = (
+        weekly_summary_tab1['Omzet'].pct_change().apply(format_wow_growth)
     )
+
+    # Format Rupiah untuk kolom omzet
+    weekly_summary_tab1['Omzet'] = weekly_summary_tab1['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
+
+    # Tampilkan tabel dengan highlight warna pertumbuhan
     st.dataframe(
-        display_df_top.style.apply(lambda s: s.map(style_wow_growth), subset=['Perbandingan minggu lalu']), 
-        use_container_width=True, 
-        hide_index=True
+        weekly_summary_tab1[['Minggu', 'Omzet', 'Penjualan_Unit', 'Pertumbuhan Omzet (WoW)']]
+            .style.apply(lambda s: s.map(style_wow_growth), subset=['Pertumbuhan Omzet (WoW)']),
+        use_container_width=True, hide_index=True
+    )
+    # --- AKHIR PERBAIKAN ---
+
     )
     # --- AKHIR PERBAIKAN TABEL PRODUK TERLARIS ---
 
@@ -431,3 +441,4 @@ with tab6:
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)].copy()
                         new_products_df['Harga_fmt'] = new_products_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
                         st.dataframe(new_products_df[['Nama Produk', 'Harga_fmt', 'Stok', 'Brand']].rename(columns={'Harga_fmt':'Harga'}), use_container_width=True, hide_index=True)
+
