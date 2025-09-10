@@ -78,8 +78,8 @@ def tarik_data_dari_gsheet(spreadsheet_id, sheet_names):
             for col in ['Harga', 'Terjual/Bulan', 'Omzet', 'Stok']:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False), errors='coerce')
-            if 'Tanggal' in df.columns:
-                 df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce', dayfirst=True)
+            if 'TANGGAL' in df.columns:
+                 df['TANGGAL'] = pd.to_datetime(df['TANGGAL'], errors='coerce', dayfirst=True)
             data_frames[name] = df
         return data_frames, None
     except Exception as e:
@@ -93,12 +93,12 @@ def preprocess_data(data_frames, start_date, end_date):
     """Membersihkan dan memproses data yang sudah ditarik."""
     processed_data = {}
     for name, df in data_frames.items():
-        if df.empty or 'Tanggal' not in df.columns:
+        if df.empty or 'TANGGAL' not in df.columns:
             processed_data[name] = df
             continue
         
-        df_filtered = df.dropna(subset=['Tanggal'])
-        df_filtered = df_filtered[(df_filtered['Tanggal'] >= start_date) & (df_filtered['Tanggal'] <= end_date)].copy()
+        df_filtered = df.dropna(subset=['TANGGAL'])
+        df_filtered = df_filtered[(df_filtered['TANGGAL'] >= start_date) & (df_filtered['TANGGAL'] <= end_date)].copy()
         
         # Logika ekstraksi Brand dihapus karena Brand sudah ada dari sumber (setelah standarisasi)
         
@@ -201,15 +201,15 @@ else:
             st.cache_data.clear()
             st.rerun()
 
-        list_of_date_series = [df['Tanggal'].dropna() for df in all_data.values() if 'Tanggal' in df.columns and not df.empty and not df['Tanggal'].dropna().empty]
+        list_of_date_series = [df['TANGGAL'].dropna() for df in all_data.values() if 'TANGGAL' in df.columns and not df.empty and not df['TANGGAL'].dropna().empty]
         if not list_of_date_series:
-            st.error("Gagal menemukan data tanggal yang valid di semua sheet.")
-            st.warning("Mohon periksa nama kolom 'Tanggal' dan format isinya di Google Sheet.")
+            st.error("Gagal menemukan data TANGGAL yang valid di semua sheet.")
+            st.warning("Mohon periksa nama kolom 'TANGGAL' dan format isinya di Google Sheet.")
             st.stop()
 
         all_dates = pd.concat(list_of_date_series)
         min_date, max_date = all_dates.min().date(), all_dates.max().date()
-        selected_date_range = st.date_input("Pilih Rentang Tanggal Analisis", (min_date, max_date), min_value=min_date, max_value=max_date)
+        selected_date_range = st.date_input("Pilih Rentang TANGGAL Analisis", (min_date, max_date), min_value=min_date, max_value=max_date)
         
         start_date = datetime.combine(selected_date_range[0], datetime.min.time()) if len(selected_date_range) > 0 else datetime.now()
         end_date = datetime.combine(selected_date_range[1], datetime.max.time()) if len(selected_date_range) > 1 else datetime.now()
@@ -227,7 +227,7 @@ else:
         # --- PERBAIKAN: Inisialisasi df_db_klik untuk mencegah KeyError ---
         df_db_klik = pd.DataFrame()
         if not df_db_klik_full.empty:
-            df_db_klik = df_db_klik_full.sort_values('Tanggal', ascending=False).drop_duplicates('Nama Produk', keep='first')
+            df_db_klik = df_db_klik_full.sort_values('TANGGAL', ascending=False).drop_duplicates('Nama Produk', keep='first')
             @st.cache_data
             def convert_df(df): return df.to_csv(index=False).encode('utf-8')
             st.download_button(label="📥 Unduh Data CSV", data=convert_df(df_db_klik), file_name=f"db_klik_data.csv", mime="text/csv")
@@ -239,7 +239,7 @@ else:
     with tab1:
         st.header("Analisis Kinerja Toko DB KLIK")
         if df_db_klik.empty:
-            st.warning("Tidak ada data untuk DB KLIK pada rentang tanggal yang dipilih.")
+            st.warning("Tidak ada data untuk DB KLIK pada rentang TANGGAL yang dipilih.")
         else:
             df_database = processed_data.get("DATABASE", pd.DataFrame())
             df_db_klik_kategori = fuzzy_match_kategori(df_db_klik.copy(), df_database, fuzzy_threshold)
@@ -262,13 +262,13 @@ else:
             st.dataframe(produk_per_kategori[['Nama Produk', 'Harga', 'Terjual/Bulan', 'Status']].rename(columns={'Harga': 'Harga Terakhir', 'Terjual/Bulan': 'Terjual/Bulan Terakhir'}), use_container_width=True)
 
             st.subheader("2. Produk Terlaris (Global)")
-            df_db_klik_full['Minggu'] = df_db_klik_full['Tanggal'].dt.to_period('W')
-            produk_terkini = df_db_klik_full.sort_values('Tanggal').drop_duplicates('Nama Produk', keep='last')
-            produk_minggu_lalu = df_db_klik_full[df_db_klik_full['Minggu'] == (produk_terkini['Minggu'].max() - 1)].sort_values('Tanggal').drop_duplicates('Nama Produk', keep='last')
+            df_db_klik_full['Minggu'] = df_db_klik_full['TANGGAL'].dt.to_period('W')
+            produk_terkini = df_db_klik_full.sort_values('TANGGAL').drop_duplicates('Nama Produk', keep='last')
+            produk_minggu_lalu = df_db_klik_full[df_db_klik_full['Minggu'] == (produk_terkini['Minggu'].max() - 1)].sort_values('TANGGAL').drop_duplicates('Nama Produk', keep='last')
             merged_produk = pd.merge(produk_terkini, produk_minggu_lalu[['Nama Produk', 'Omzet']], on='Nama Produk', how='left', suffixes=('', '_lalu'))
             merged_produk['Indikator'] = ((merged_produk['Omzet'] - merged_produk['Omzet_lalu']) / merged_produk['Omzet_lalu'].replace(0,1)) * 100
             merged_produk['Indikator'] = merged_produk['Indikator'].apply(format_indicator)
-            st.dataframe(merged_produk[['Nama Produk', 'Harga', 'Terjual/Bulan', 'Omzet', 'Tanggal', 'Indikator']].sort_values('Omzet', ascending=False), use_container_width=True)
+            st.dataframe(merged_produk[['Nama Produk', 'Harga', 'Terjual/Bulan', 'Omzet', 'TANGGAL', 'Indikator']].sort_values('Omzet', ascending=False), use_container_width=True)
 
             st.subheader("3. Distribusi Omzet Brand")
             brand_omzet = df_db_klik_kategori.groupby('Brand')['Omzet'].sum().sort_values(ascending=False).reset_index()
@@ -277,7 +277,7 @@ else:
             st.plotly_chart(fig_brand, use_container_width=True)
 
             st.subheader("4. Ringkasan Kinerja Mingguan (WoW Growth)")
-            df_db_klik_full['Minggu'] = df_db_klik_full['Tanggal'].dt.to_period('W').apply(lambda r: r.start_time).dt.date
+            df_db_klik_full['Minggu'] = df_db_klik_full['TANGGAL'].dt.to_period('W').apply(lambda r: r.start_time).dt.date
             kinerja_mingguan = df_db_klik_full.groupby('Minggu').agg(Omzet=('Omzet', 'sum'), Penjualan_Unit=('Terjual/Bulan', 'sum')).sort_index().reset_index()
             kinerja_mingguan['Pertumbuhan Omzet'] = ((kinerja_mingguan['Omzet'] - kinerja_mingguan['Omzet'].shift(1)) / kinerja_mingguan['Omzet'].shift(1).replace(0,1)) * 100
             kinerja_mingguan['Pertumbuhan Omzet'] = kinerja_mingguan['Pertumbuhan Omzet'].apply(format_indicator)
@@ -293,7 +293,7 @@ else:
             
             if selected_product:
                 # Data produk utama
-                produk_db_klik_hist = df_db_klik_full[df_db_klik_full['Nama Produk'] == selected_product].sort_values('Tanggal')
+                produk_db_klik_hist = df_db_klik_full[df_db_klik_full['Nama Produk'] == selected_product].sort_values('TANGGAL')
                 produk_db_klik_latest = produk_db_klik_hist.iloc[-1]
                 
                 st.subheader(f"Data Utama: {selected_product}")
@@ -304,7 +304,7 @@ else:
                 col3.metric("Stok", produk_db_klik_latest.get('Stok', 'N/A'))
 
                 # Line chart harga
-                fig_price = px.line(produk_db_klik_hist, x='Tanggal', y='Harga', title=f'Perubahan Harga {selected_product}', markers=True)
+                fig_price = px.line(produk_db_klik_hist, x='TANGGAL', y='Harga', title=f'Perubahan Harga {selected_product}', markers=True)
                 
                 # Cari di toko lain
                 st.subheader("Perbandingan di Toko Kompetitor")
@@ -319,7 +319,7 @@ else:
 
                     match, score = process.extractOne(selected_product, df_store['Nama Produk'].unique(), scorer=fuzz.token_sort_ratio)
                     if score >= fuzzy_threshold:
-                        matched_hist = df_store[df_store['Nama Produk'] == match].sort_values('Tanggal')
+                        matched_hist = df_store[df_store['Nama Produk'] == match].sort_values('TANGGAL')
                         if matched_hist.empty: continue
                         matched_latest = matched_hist.iloc[-1]
                         status_kompetitor = "READY" if matched_latest['Nama Produk'] in df_ready['Nama Produk'].values else "HABIS"
@@ -330,7 +330,7 @@ else:
                             'Status': status_kompetitor, 'Stok': matched_latest.get('Stok', 'N/A'), 'Selisih': selisih
                         })
                         # Tambah ke line chart
-                        fig_price.add_scatter(x=matched_hist['Tanggal'], y=matched_hist['Harga'], mode='lines+markers', name=store)
+                        fig_price.add_scatter(x=matched_hist['TANGGAL'], y=matched_hist['Harga'], mode='lines+markers', name=store)
                 
                 st.plotly_chart(fig_price, use_container_width=True)
 
@@ -359,7 +359,7 @@ else:
                 df_full_store = pd.concat([df_ready, df_habis]) if not df_ready.empty or not df_habis.empty else pd.DataFrame()
 
                 if df_full_store.empty:
-                    st.warning(f"Tidak ada data untuk {selected_store} pada rentang tanggal ini.")
+                    st.warning(f"Tidak ada data untuk {selected_store} pada rentang TANGGAL ini.")
                 else:
                     brand_analysis = df_full_store.groupby('Brand').agg(
                         Total_Omzet=('Omzet', 'sum'),
@@ -384,13 +384,13 @@ else:
             df_habis = processed_data.get(f"{store} - REKAP - HABIS", pd.DataFrame())
             
             if not df_ready.empty:
-                df_ready['Minggu'] = df_ready['Tanggal'].dt.to_period('W').apply(lambda r: r.start_time).dt.date
+                df_ready['Minggu'] = df_ready['TANGGAL'].dt.to_period('W').apply(lambda r: r.start_time).dt.date
                 ready_counts = df_ready.groupby('Minggu')['Nama Produk'].nunique().reset_index().rename(columns={'Nama Produk': 'Ready'})
                 ready_counts['Toko'] = store
                 stock_data.append(ready_counts)
 
             if not df_habis.empty:
-                df_habis['Minggu'] = df_habis['Tanggal'].dt.to_period('W').apply(lambda r: r.start_time).dt.date
+                df_habis['Minggu'] = df_habis['TANGGAL'].dt.to_period('W').apply(lambda r: r.start_time).dt.date
                 habis_counts = df_habis.groupby('Minggu')['Nama Produk'].nunique().reset_index().rename(columns={'Nama Produk': 'Habis'})
                 habis_counts['Toko'] = store
                 stock_data.append(habis_counts)
@@ -416,7 +416,7 @@ else:
             df_habis = processed_data.get(f"{store} - REKAP - HABIS", pd.DataFrame())
             df_full = pd.concat([df_ready, df_habis])
             if not df_full.empty and 'Omzet' in df_full.columns:
-                df_full['Minggu'] = df_full['Tanggal'].dt.to_period('W').apply(lambda r: r.start_time).dt.date
+                df_full['Minggu'] = df_full['TANGGAL'].dt.to_period('W').apply(lambda r: r.start_time).dt.date
                 weekly_omzet = df_full.groupby('Minggu')['Omzet'].sum().reset_index()
                 weekly_omzet['Toko'] = store
                 omzet_data.append(weekly_omzet)
@@ -438,8 +438,8 @@ else:
         # Gabungkan semua data produk dari semua toko
         all_products_df = pd.concat([df for name, df in processed_data.items() if 'REKAP' in name and not df.empty])
 
-        if not all_products_df.empty and 'Tanggal' in all_products_df.columns:
-            all_products_df['Minggu'] = all_products_df['Tanggal'].dt.to_period('W').apply(lambda r: r.start_time).dt.date
+        if not all_products_df.empty and 'TANGGAL' in all_products_df.columns:
+            all_products_df['Minggu'] = all_products_df['TANGGAL'].dt.to_period('W').apply(lambda r: r.start_time).dt.date
             unique_weeks = sorted(all_products_df['Minggu'].unique(), reverse=True)
 
             if len(unique_weeks) < 2:
@@ -458,10 +458,11 @@ else:
                     st.subheader(f"Ditemukan {len(produk_baru)} produk baru pada minggu {target_week} dibandingkan {comparison_week}")
                     
                     if produk_baru:
-                        df_produk_baru = all_products_df[all_products_df['Nama Produk'].isin(produk_baru)].sort_values('Tanggal', ascending=False).drop_duplicates('Nama Produk', keep='first')
+                        df_produk_baru = all_products_df[all_products_df['Nama Produk'].isin(produk_baru)].sort_values('TANGGAL', ascending=False).drop_duplicates('Nama Produk', keep='first')
                         st.dataframe(df_produk_baru[['Nama Produk', 'Harga', 'Stok', 'Brand']], use_container_width=True)
                 elif target_week == comparison_week:
                     st.warning("Minggu target dan pembanding tidak boleh sama.")
         else:
             st.warning("Tidak ada data produk yang cukup untuk analisis produk baru.")
+
 
