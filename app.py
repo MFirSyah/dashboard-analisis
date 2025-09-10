@@ -29,7 +29,7 @@ def load_data_from_gsheets():
     membersihkan, menormalkan, dan menggabungkannya menjadi DataFrame yang siap diolah.
     """
     # --- PENTING: Ganti dengan Kunci Google Sheet Anda ---
-    GSHEET_KEY = "GANTI_DENGAN_KUNCI_SPREADSHEET_ANDA"
+    GSHEET_KEY = "1hl7YPEPg4aaEheN5fBKk65YX3-KdkQBRHCJWhVr9kVQ"
 
     # Kredensial dimasukkan langsung ke dalam kode.
     # Catatan: Untuk penggunaan production, sangat disarankan menggunakan st.secrets.
@@ -553,4 +553,5 @@ with st.sidebar:
         mime='application/json',
         use_container_width=True
     )
+
 
