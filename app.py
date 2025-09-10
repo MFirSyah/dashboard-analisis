@@ -73,7 +73,6 @@ def tarik_data_dari_gsheet(spreadsheet_id, sheet_names):
                 'BRAND': 'BRAND'
             }, inplace=True)
             
-            # --- PERUBAHAN: Menghapus 'STOK' dari konversi numerik ---
             for col in ['HARGA', 'Terjual/Bulan', 'Omzet']:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False), errors='coerce')
@@ -106,7 +105,7 @@ def preprocess_data(data_frames, start_date, end_date):
     return processed_data
 
 
-def fuzzy_match_kategori(df_db, df_database, threshold=85):
+def fuzzy_match_kategori(df_db, df_database, threshold=90):
     """Melakukan fuzzy matching untuk melabeli kategori produk."""
     if df_database.empty or 'NAMA' not in df_database.columns or 'Kategori' not in df_database.columns:
         df_db['Kategori'] = 'Tidak Terkategori'
@@ -119,6 +118,7 @@ def fuzzy_match_kategori(df_db, df_database, threshold=85):
     kategori_list = []
     for product in db_products:
         try:
+            # Menggunakan token_sort_ratio untuk fleksibilitas urutan kata
             match, score = process.extractOne(product, database_products, scorer=fuzz.token_sort_ratio)
             if score >= threshold:
                 kategori_list.append(kategori_map.get(match, 'Tidak Terkategori'))
@@ -211,7 +211,10 @@ else:
         start_date = datetime.combine(selected_date_range[0], datetime.min.time()) if len(selected_date_range) > 0 else datetime.now()
         end_date = datetime.combine(selected_date_range[1], datetime.max.time()) if len(selected_date_range) > 1 else datetime.now()
         
-        fuzzy_threshold = st.slider("Tingkat Akurasi Fuzzy Match (%)", 50, 100, 85)
+        # --- PERBAIKAN: Default fuzzy match diubah ke 90 ---
+        fuzzy_threshold = st.slider("Tingkat Akurasi Fuzzy Match (%)", 50, 100, 90)
+        st.caption("Akurasi lebih tinggi = lebih ketat. Turunkan jika banyak produk 'Tidak Terkategori'.")
+        
         total_rows = sum(len(df) for df in all_data.values())
         st.info(f"Total baris data yang diolah: **{total_rows}**")
 
@@ -229,7 +232,6 @@ else:
             st.download_button(label="📥 Unduh Data CSV", data=convert_df(df_db_klik), file_name=f"db_klik_data.csv", mime="text/csv")
 
     st.title("Hasil Analisis E-commerce")
-    # --- PERUBAHAN: Menghapus Tab "Tren STOK" ---
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Analisis DB KLIK", "⚖️ Perbandingan Produk", "🏢 Analisis Kompetitor", "💰 Omzet Toko", "🆕 Produk Baru"])
 
     with tab1:
@@ -248,7 +250,6 @@ else:
                 num_bars = col1.slider("Jumlah Kategori", 1, len(kategori_omzet), min(10, len(kategori_omzet)))
                 if sort_order == "Paling Tidak Laris": kategori_omzet = kategori_omzet.sort_values('Omzet', ascending=True)
                 fig_kategori = px.bar(kategori_omzet.head(num_bars), x='Omzet', y='Kategori', orientation='h', title=f'Top {num_bars} Kategori', text='Omzet', labels={'Omzet': 'Total Omzet (Rp)', 'Kategori': 'Kategori'})
-                # --- FORMAT RUPIAH ---
                 fig_kategori.update_traces(texttemplate='Rp%{text:,.0f}', textposition='outside')
                 fig_kategori.update_layout(yaxis={'categoryorder':'total ascending'}, xaxis_tickprefix='Rp', xaxis_tickformat=',.0f')
                 col2.plotly_chart(fig_kategori, use_container_width=True)
@@ -257,10 +258,12 @@ else:
                 selected_kategori = st.selectbox("Pilih Kategori", kategori_omzet['Kategori'].unique())
                 produk_per_kategori = df_db_klik_kategori[df_db_klik_kategori['Kategori'] == selected_kategori].sort_values('Omzet', ascending=False)
                 produk_per_kategori['Status'] = np.where(produk_per_kategori['NAMA'].isin(db_klik_ready['NAMA']), 'READY', 'HABIS')
-                # --- FORMAT RUPIAH & Hapus STOK ---
+                
+                # --- PERBAIKAN FORMAT RUPIAH ---
+                df_display_kategori = produk_per_kategori[['NAMA', 'HARGA', 'Terjual/Bulan', 'Status']].rename(columns={'HARGA': 'HARGA Terakhir'})
                 st.dataframe(
-                    produk_per_kategori[['NAMA', 'HARGA', 'Terjual/Bulan', 'Status']],
-                    column_config={"HARGA": st.column_config.NumberColumn("HARGA Terakhir", format="Rp %d")},
+                    df_display_kategori,
+                    column_config={"HARGA Terakhir": st.column_config.NumberColumn(format="Rp %d")},
                     use_container_width=True
                 )
 
@@ -269,9 +272,10 @@ else:
                 produk_terkini = df_db_klik_full.sort_values('TANGGAL').drop_duplicates('NAMA', keep='last')
                 produk_minggu_lalu = df_db_klik_full[df_db_klik_full['Minggu'] == (produk_terkini['Minggu'].max() - 1)].sort_values('TANGGAL').drop_duplicates('NAMA', keep='last')
                 merged_produk = pd.merge(produk_terkini, produk_minggu_lalu[['NAMA', 'Omzet']], on='NAMA', how='left', suffixes=('', '_lalu'))
-                merged_produk['Indikator'] = ((merged_produk['Omzet'] - merged_produk['Omzet_lalu']) / merged_produk['Omzet_lalu'].replace(0,1)) * 100
+                merged_produk['Indikator'] = ((merged_produk['Omzet'] - merged_produk['Omzet_lalu']) / merged_produk['Omzet_lalu'].replace(0,np.nan)) * 100
                 merged_produk['Indikator'] = merged_produk['Indikator'].apply(format_indicator)
-                # --- FORMAT RUPIAH & Hapus STOK ---
+                
+                # --- PERBAIKAN FORMAT RUPIAH ---
                 st.dataframe(
                     merged_produk[['NAMA', 'HARGA', 'Terjual/Bulan', 'Omzet', 'TANGGAL', 'Indikator']].sort_values('Omzet', ascending=False),
                     column_config={
@@ -285,16 +289,16 @@ else:
                 st.subheader("3. Distribusi Omzet BRAND")
                 BRAND_omzet = df_db_klik_kategori.groupby('BRAND')['Omzet'].sum().sort_values(ascending=False).reset_index()
                 fig_BRAND = px.pie(BRAND_omzet.head(10), values='Omzet', names='BRAND', title='Distribusi Omzet 10 BRAND Teratas', hover_data=['Omzet'])
-                # --- FORMAT RUPIAH ---
                 fig_BRAND.update_traces(textposition='inside', textinfo='percent+label', hovertemplate='BRAND: %{label}<br>Omzet: Rp%{value:,.0f}<extra></extra>')
                 st.plotly_chart(fig_BRAND, use_container_width=True)
 
                 st.subheader("4. Ringkasan Kinerja Mingguan (WoW Growth)")
                 df_db_klik_full['Minggu'] = df_db_klik_full['TANGGAL'].dt.to_period('W').apply(lambda r: r.start_time).dt.date
                 kinerja_mingguan = df_db_klik_full.groupby('Minggu').agg(Omzet=('Omzet', 'sum'), Penjualan_Unit=('Terjual/Bulan', 'sum')).sort_index().reset_index()
-                kinerja_mingguan['Pertumbuhan Omzet'] = ((kinerja_mingguan['Omzet'] - kinerja_mingguan['Omzet'].shift(1)) / kinerja_mingguan['Omzet'].shift(1).replace(0,1)) * 100
+                kinerja_mingguan['Pertumbuhan Omzet'] = ((kinerja_mingguan['Omzet'] - kinerja_mingguan['Omzet'].shift(1)) / kinerja_mingguan['Omzet'].shift(1).replace(0,np.nan)) * 100
                 kinerja_mingguan['Pertumbuhan Omzet'] = kinerja_mingguan['Pertumbuhan Omzet'].apply(format_indicator)
-                # --- FORMAT RUPIAH ---
+                
+                # --- PERBAIKAN FORMAT RUPIAH ---
                 st.dataframe(
                     kinerja_mingguan[['Minggu', 'Omzet', 'Penjualan_Unit', 'Pertumbuhan Omzet']],
                     column_config={"Omzet": st.column_config.NumberColumn(format="Rp %d")},
@@ -318,7 +322,6 @@ else:
                 produk_db_klik_latest = produk_db_klik_hist.iloc[-1]
                 
                 st.subheader(f"Data Utama: {selected_product}")
-                # --- PERUBAHAN: Menghapus kolom STOK, menjadi 2 kolom ---
                 col1, col2 = st.columns(2)
                 col1.metric("HARGA Terakhir", f"Rp{produk_db_klik_latest['HARGA']:,.0f}")
                 status_db_klik = "READY" if produk_db_klik_latest['NAMA'] in db_klik_ready['NAMA'].values else "HABIS"
@@ -343,14 +346,12 @@ else:
                         status_kompetitor = "READY" if matched_latest['NAMA'] in df_ready['NAMA'].values else "HABIS"
                         selisih = matched_latest['HARGA'] - produk_db_klik_latest['HARGA']
                         
-                        # --- PERUBAHAN: Menghapus 'STOK' dari data kompetitor ---
                         competitor_data.append({
                             'Toko': store, 'Produk Kompetitor': match, 'HARGA': matched_latest['HARGA'],
                             'Status': status_kompetitor, 'Selisih': selisih
                         })
                         fig_price.add_scatter(x=matched_hist['TANGGAL'], y=matched_hist['HARGA'], mode='lines+markers', name=store)
                 
-                # --- FORMAT RUPIAH ---
                 fig_price.update_layout(yaxis_tickprefix='Rp', yaxis_tickformat=',.0f', hovermode="x unified")
                 fig_price.update_traces(hovertemplate='<b>%{full_data.name}</b><br>HARGA: Rp%{y:,.0f}<extra></extra>')
                 st.plotly_chart(fig_price, use_container_width=True)
@@ -358,11 +359,11 @@ else:
                 if competitor_data:
                     df_competitor = pd.DataFrame(competitor_data)
                     def format_selisih(s):
+                        if pd.isna(s): return "N/A"
                         if s > 0: return f"Lebih Mahal (Rp{s:,.0f})"
                         elif s < 0: return f"Lebih Murah (Rp{abs(s):,.0f})"
                         return "HARGA Sama"
                     df_competitor['Perbandingan'] = df_competitor['Selisih'].apply(format_selisih)
-                    # --- PERUBAHAN: Menghapus 'STOK' dari dataframe dan format RUPIAH ---
                     st.dataframe(
                         df_competitor[['Toko', 'Produk Kompetitor', 'HARGA', 'Status', 'Perbandingan']],
                         column_config={"HARGA": st.column_config.NumberColumn(format="Rp %d")},
@@ -394,7 +395,8 @@ else:
 
                     st.subheader(f"Analisis BRAND di {selected_store}")
                     col1, col2 = st.columns(2)
-                    # --- FORMAT RUPIAH ---
+                    
+                    # --- PERBAIKAN FORMAT RUPIAH ---
                     col1.dataframe(
                         BRAND_analysis,
                         column_config={"Total_Omzet": st.column_config.NumberColumn(format="Rp %d")},
@@ -402,11 +404,9 @@ else:
                     )
                     
                     fig_BRAND_pie = px.pie(BRAND_analysis.head(10), values='Total_Omzet', names='BRAND', title=f'Top 10 BRAND di {selected_store}')
-                    # --- FORMAT RUPIAH ---
                     fig_BRAND_pie.update_traces(textposition='inside', textinfo='percent+label', hovertemplate='BRAND: %{label}<br>Omzet: Rp%{value:,.0f}<extra></extra>')
                     col2.plotly_chart(fig_BRAND_pie, use_container_width=True)
     
-    # --- PERUBAHAN: Tab ke-4 sekarang adalah Omzet Toko ---
     with tab4:
         st.header("💰 Tabel Omzet Semua Toko per Minggu")
         omzet_data = []
@@ -426,19 +426,17 @@ else:
             df_omzet_all = pd.concat(omzet_data)
             df_omzet_pivot = df_omzet_all.pivot(index='Minggu', columns='Toko', values='Omzet').fillna(0)
             
-            # --- FORMAT RUPIAH untuk setiap kolom toko ---
+            # --- PERBAIKAN FORMAT RUPIAH ---
             format_dict = {col: st.column_config.NumberColumn(format="Rp %d") for col in df_omzet_pivot.columns}
-            st.dataframe(df_omzet_pivot, column_config=format_dict, use_container_width=True)
+            st.dataframe(df_omzet_pivot.sort_index(ascending=False), column_config=format_dict, use_container_width=True)
 
             fig_omzet_trend = px.line(df_omzet_all, x='Minggu', y='Omzet', color='Toko', title="Tren Omzet Mingguan per Toko", markers=True, labels={'Omzet': 'Omzet (Rp)'})
-            # --- FORMAT RUPIAH ---
             fig_omzet_trend.update_layout(yaxis_tickprefix='Rp', yaxis_tickformat=',.0f', hovermode="x unified")
             fig_omzet_trend.update_traces(hovertemplate='<b>%{full_data.name}</b><br>Omzet: Rp%{y:,.0f}<extra></extra>')
             st.plotly_chart(fig_omzet_trend, use_container_width=True)
         else:
             st.warning("Tidak ada data omzet untuk ditampilkan.")
     
-    # --- PERUBAHAN: Tab ke-5 sekarang adalah Produk Baru ---
     with tab5:
         st.header("🆕 Analisis Produk Baru Mingguan")
         
@@ -465,7 +463,8 @@ else:
                     
                     if produk_baru:
                         df_produk_baru = all_products_df[all_products_df['NAMA'].isin(produk_baru)].sort_values('TANGGAL', ascending=False).drop_duplicates('NAMA', keep='first')
-                        # --- PERUBAHAN: Menghapus STOK dari dataframe dan format RUPIAH ---
+                        
+                        # --- PERBAIKAN FORMAT RUPIAH ---
                         st.dataframe(
                             df_produk_baru[['NAMA', 'HARGA', 'BRAND']],
                             column_config={"HARGA": st.column_config.NumberColumn(format="Rp %d")},
