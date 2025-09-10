@@ -126,8 +126,6 @@ def load_data_from_gsheets():
 
     rekap_df['Harga'] = rekap_df['Harga'].astype(int)
     rekap_df['Terjual per Bulan'] = rekap_df['Terjual per Bulan'].astype(int)
-    # --- [KALKULASI OMZET PER BARIS SUDAH BENAR] ---
-    # Omzet dihitung untuk setiap baris data (Harga * Terjual)
     rekap_df['Omzet'] = rekap_df['Harga'] * rekap_df['Terjual per Bulan']
     rekap_df.drop_duplicates(subset=['Nama Produk', 'Toko', 'Tanggal'], inplace=True, keep='last')
 
@@ -211,9 +209,8 @@ df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambd
 main_store_df = df_filtered[df_filtered['Toko'] == my_store_name].copy()
 competitor_df = df_filtered[df_filtered['Toko'] != my_store_name].copy()
 
-# --- [PERBAIKAN UTAMA LOGIKA AGREGASI] ---
-# Untuk menghindari penghitungan ganda, kita siapkan dua jenis data 'terakhir':
-# 1. latest_entries_weekly: Data terakhir per produk PER MINGGU (untuk analisis time-series/tren mingguan).
+# --- [LOGIKA INTI UNTUK PERHITUNGAN AKURAT] ---
+# 1. latest_entries_weekly: Data terakhir per produk PER MINGGU (untuk analisis tren mingguan).
 latest_entries_weekly = df_filtered.loc[df_filtered.groupby(['Minggu', 'Toko', 'Nama Produk'])['Tanggal'].idxmax()]
 
 # 2. latest_entries_overall: Data terakhir per produk dalam SELURUH rentang tanggal (untuk agregat total seperti pie chart).
@@ -238,13 +235,6 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⭐ Analisis Toko Saya", "⚖️ 
 
 with tab1:
     st.header(f"Analisis Kinerja Toko: {my_store_name}")
-
-    # Analisis perbandingan mingguan per produk tetap menggunakan df_filtered biasa
-    main_store_df_sorted = main_store_df.sort_values(['Nama Produk', 'Tanggal'])
-    main_store_df_sorted['Terjual Minggu Lalu'] = main_store_df_sorted.groupby('Nama Produk')['Terjual per Bulan'].shift(1)
-    main_store_df_sorted['Perbandingan minggu lalu'] = (main_store_df_sorted['Terjual per Bulan'] - main_store_df_sorted['Terjual Minggu Lalu']) / main_store_df_sorted['Terjual Minggu Lalu']
-    main_store_df_sorted['Perbandingan minggu lalu'] = main_store_df_sorted['Perbandingan minggu lalu'].apply(format_wow_growth)
-    main_store_df_sorted['Perbandingan minggu lalu'].fillna('Baru', inplace=True)
     
     section_counter = 1
 
@@ -263,7 +253,6 @@ with tab1:
                         _rekap_df.loc[index, 'Kategori'] = db_map[match]
             return _rekap_df
         
-        # --- PERBAIKAN: Menggunakan data snapshot terakhir untuk agregasi kategori ---
         main_store_cat = fuzzy_merge_categories(main_store_latest_overall.copy(), db_df)
         category_sales = main_store_cat.groupby('Kategori')['Omzet'].sum().reset_index()
         
@@ -277,7 +266,6 @@ with tab1:
 
     st.subheader(f"{section_counter}. Produk Terlaris")
     section_counter += 1
-    # Menampilkan produk terlaris dari data snapshot terakhir
     top_products = main_store_latest_overall.sort_values('Terjual per Bulan', ascending=False).head(15).copy()
     top_products['Harga_rp'] = top_products['Harga'].apply(lambda x: f"Rp {x:,.0f}")
     top_products['Omzet_rp'] = top_products['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
@@ -290,7 +278,6 @@ with tab1:
 
     st.subheader(f"{section_counter}. Distribusi Omzet Brand")
     section_counter += 1
-    # --- PERBAIKAN: Menggunakan data snapshot terakhir untuk agregasi brand ---
     brand_omzet_main = main_store_latest_overall.groupby('Brand')['Omzet'].sum().reset_index()
     if not brand_omzet_main.empty:
         fig_brand_pie = px.pie(brand_omzet_main.sort_values('Omzet', ascending=False).head(7), 
@@ -307,12 +294,14 @@ with tab1:
 
     st.subheader(f"{section_counter}. Ringkasan Kinerja Mingguan (WoW Growth)")
     section_counter += 1
-    # --- PERBAIKAN: Menggunakan data terakhir per MINGGU ---
+    # --- MENGGUNAKAN LOGIKA YANG SAMA DENGAN TAB 5 ---
+    # 1. Agregasi semua toko dari data snapshot mingguan
     weekly_summary_all = latest_entries_weekly.groupby(['Minggu', 'Toko']).agg(
         Omzet=('Omzet', 'sum'),
         Penjualan_Unit=('Terjual per Bulan', 'sum')
     ).reset_index()
     
+    # 2. Filter hanya untuk toko "DB KLIK"
     weekly_summary_tab1 = weekly_summary_all[weekly_summary_all['Toko'] == my_store_name].copy()
     weekly_summary_tab1.sort_values('Minggu', inplace=True) 
     
@@ -388,7 +377,6 @@ with tab3:
         competitor_list = sorted(competitor_df['Toko'].unique())
         for competitor_store in competitor_list:
             with st.expander(f"Analisis untuk Kompetitor: **{competitor_store}**"):
-                # --- PERBAIKAN: Menggunakan data snapshot terakhir untuk agregasi brand kompetitor ---
                 single_competitor_df = competitor_latest_overall[competitor_latest_overall['Toko'] == competitor_store]
                 brand_analysis = single_competitor_df.groupby('Brand').agg(Total_Omzet=('Omzet', 'sum'), Total_Unit_Terjual=('Terjual per Bulan', 'sum')).reset_index().sort_values("Total_Omzet", ascending=False)
                 
@@ -413,12 +401,10 @@ with tab4:
 with tab5:
     st.header("Analisis Kinerja Penjualan (Semua Toko)")
     
-    # --- Grafik Garis (Menggunakan data terakhir per MINGGU) ---
     all_stores_latest_per_week = latest_entries_weekly.groupby(['Minggu', 'Toko'])['Omzet'].sum().reset_index()
     fig_weekly_omzet = px.line(all_stores_latest_per_week, x='Minggu', y='Omzet', color='Toko', markers=True, title='Perbandingan Omzet Mingguan Antar Toko (Berdasarkan Snapshot Terakhir)')
     st.plotly_chart(fig_weekly_omzet, use_container_width=True)
     
-    # --- Tabel Pivot Omzet (Berdasarkan HARI, tidak perlu diubah) ---
     st.subheader("Tabel Rincian Omzet per Tanggal")
     if not df_filtered.empty:
         omzet_pivot = df_filtered.pivot_table(
