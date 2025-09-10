@@ -1,8 +1,8 @@
 # ===================================================================================
-#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL V7 (Rumus Diperbaiki)
+#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL V3
 #  Dibuat oleh: Firman & Asisten AI Gemini
 #  Metode Koneksi: Aman & Stabil (gspread + st.secrets individual)
-#  Peningkatan: Memperbaiki RUMUS kalkulasi omzet mingguan di Tab 1 sesuai arahan.
+#  Peningkatan: Perbaikan Logika Omzet, Penambahan Kolom Tanggal, & Visualisasi Pie Chart
 # ===================================================================================
 
 # ===================================================================================
@@ -265,14 +265,13 @@ with tab1:
     top_products['Omzet_rp'] = top_products['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
     top_products['Tanggal_fmt'] = top_products['Tanggal'].dt.strftime('%Y-%m-%d')
     
-    display_df_top = top_products[['Nama Produk', 'Harga_rp', 'Terjual per Bulan', 'Omzet_rp', 'Tanggal_fmt', 'Perbandingan minggu lalu']].rename(
+    display_df_top = top_products[['Nama Produk', 'Harga_rp', 'Omzet_rp', 'Tanggal_fmt', 'Perbandingan minggu lalu']].rename(
         columns={'Harga_rp': 'Harga', 'Omzet_rp': 'Omzet', 'Tanggal_fmt': 'Tanggal'}
     )
     st.dataframe(
         display_df_top.style.apply(lambda s: s.map(style_wow_growth), subset=['Perbandingan minggu lalu']), 
         use_container_width=True, 
-        hide_index=True,
-        column_order=('Nama Produk', 'Harga', 'Terjual per Bulan', 'Omzet', 'Tanggal', 'Perbandingan minggu lalu')
+        hide_index=True
     )
 
     st.subheader(f"{section_counter}. Distribusi Omzet Brand")
@@ -291,36 +290,20 @@ with tab1:
     else:
         st.info("Tidak ada data omzet brand.")
 
-    # --- PERBAIKAN RUMUS OMZET MINGGUAN DIMULAI DI SINI ---
     st.subheader(f"{section_counter}. Ringkasan Kinerja Mingguan (WoW Growth)")
     section_counter += 1
-    
-    if not main_store_df.empty:
-        # 1. Ambil baris dengan tanggal terbaru untuk setiap minggu. Ini adalah snapshot yang benar.
-        latest_weekly_snapshot = main_store_df.loc[main_store_df.groupby('Minggu')['Tanggal'].idxmax()]
-        
-        # 2. Hitung total Omzet dan Penjualan dari snapshot akhir minggu tersebut.
-        #    Kita tidak perlu `groupby('Minggu')` lagi karena `latest_weekly_snapshot` sudah unik per minggu.
-        #    Namun, untuk menjaga struktur data, kita tetap group dan agg.
-        weekly_summary = latest_weekly_snapshot.groupby('Minggu').agg(
-            Omzet=('Omzet', 'sum'),
-            Penjualan_Unit=('Terjual per Bulan', 'sum')
-        ).reset_index().sort_values('Minggu')
-
-        # 3. Hitung pertumbuhan (WoW) dan format kolom.
-        weekly_summary['Pertumbuhan Omzet (WoW)'] = weekly_summary['Omzet'].pct_change().apply(format_wow_growth)
-        weekly_summary['Omzet'] = weekly_summary['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
-        
-        # 4. Tampilkan dataframe.
-        st.dataframe(
-            weekly_summary[['Minggu', 'Omzet', 'Penjualan_Unit', 'Pertumbuhan Omzet (WoW)']]
-            .style.apply(lambda s: s.map(style_wow_growth), subset=['Pertumbuhan Omzet (WoW)']), 
-            use_container_width=True, 
-            hide_index=True
-        )
-    else:
-        st.info(f"Tidak ada data untuk toko '{my_store_name}' pada rentang tanggal yang dipilih.")
+    # --- PERBAIKAN KALKULASI OMZET SESUAI LOGIKA TAB 5 ---
+    # Logika diubah untuk meniru Tab 5: agregasi semua toko dulu, baru filter.
+    weekly_summary_all = df_filtered.groupby(['Minggu', 'Toko']).agg(
+        Omzet=('Omzet', 'sum'),
+        Penjualan_Unit=('Terjual per Bulan', 'sum')
+    ).reset_index()
+    weekly_summary_tab1 = weekly_summary_all[weekly_summary_all['Toko'] == my_store_name].copy()
     # --- AKHIR PERBAIKAN ---
+    
+    weekly_summary_tab1['Pertumbuhan Omzet (WoW)'] = weekly_summary_tab1['Omzet'].pct_change().apply(format_wow_growth)
+    weekly_summary_tab1['Omzet'] = weekly_summary_tab1['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
+    st.dataframe(weekly_summary_tab1[['Minggu', 'Omzet', 'Penjualan_Unit', 'Pertumbuhan Omzet (WoW)']].style.apply(lambda s: s.map(style_wow_growth), subset=['Pertumbuhan Omzet (WoW)']), use_container_width=True, hide_index=True)
 
 with tab2:
     st.header(f"Perbandingan Produk '{my_store_name}' dengan Kompetitor")
@@ -413,10 +396,38 @@ with tab4:
 
 with tab5:
     st.header("Analisis Kinerja Penjualan (Semua Toko)")
-    # Menggunakan logika penjumlahan omzet untuk semua toko
-    weekly_omzet_all_stores = df_filtered.groupby(['Minggu', 'Toko'])['Omzet'].sum().reset_index()
-    fig_weekly_omzet = px.line(weekly_omzet_all_stores, x='Minggu', y='Omzet', color='Toko', markers=True, title='Perbandingan Omzet Mingguan Antar Toko')
+    
+    # --- Grafik Garis (Tetap ada) ---
+    all_stores_latest_per_week = df_filtered.groupby(['Minggu', 'Toko'])['Omzet'].sum().reset_index()
+    fig_weekly_omzet = px.line(all_stores_latest_per_week, x='Minggu', y='Omzet', color='Toko', markers=True, title='Perbandingan Omzet Mingguan Antar Toko')
     st.plotly_chart(fig_weekly_omzet, use_container_width=True)
+    
+    # --- Tabel Pivot Omzet (Tambahan Baru) ---
+    st.subheader("Tabel Rincian Omzet per Tanggal")
+    if not df_filtered.empty:
+        # Membuat tabel pivot
+        omzet_pivot = df_filtered.pivot_table(
+            index='Toko', 
+            columns='Tanggal', 
+            values='Omzet', 
+            aggfunc='sum'
+        ).fillna(0)
+
+        # Mengurutkan kolom tanggal (sudah otomatis jika tipe datanya datetime)
+        # Format kolom tanggal menjadi string yang lebih mudah dibaca
+        omzet_pivot.columns = [col.strftime('%d %b %Y') for col in omzet_pivot.columns]
+        
+        # Format nilai omzet menjadi format Rupiah
+        for col in omzet_pivot.columns:
+            omzet_pivot[col] = omzet_pivot[col].apply(lambda x: f"Rp {int(x):,}" if x > 0 else "-")
+            
+        # Reset index agar 'Toko' menjadi kolom biasa
+        omzet_pivot.reset_index(inplace=True)
+        
+        st.info("Anda bisa scroll tabel ini ke samping untuk melihat tanggal lainnya.")
+        st.dataframe(omzet_pivot, use_container_width=True, hide_index=True)
+    else:
+        st.warning("Tidak ada data untuk ditampilkan dalam tabel.")
 
 with tab6:
     st.header("Analisis Produk Baru Mingguan")
@@ -445,4 +456,3 @@ with tab6:
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)].copy()
                         new_products_df['Harga_fmt'] = new_products_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
                         st.dataframe(new_products_df[['Nama Produk', 'Harga_fmt', 'Stok', 'Brand']].rename(columns={'Harga_fmt':'Harga'}), use_container_width=True, hide_index=True)
-
