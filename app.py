@@ -42,8 +42,35 @@ def tarik_data_dari_gsheet(spreadsheet_id, sheet_names):
         data_frames = {}
         for name in sheet_names:
             worksheet = spreadsheet.worksheet(name)
-            records = worksheet.get_all_records()
-            df = pd.DataFrame(records)
+            
+            # --- PERBAIKAN ERROR HEADER DUPLIKAT ---
+            all_values = worksheet.get_all_values()
+            if not all_values or not all_values[0]:
+                df = pd.DataFrame() # Handle jika sheet kosong atau tidak punya header
+            else:
+                headers = all_values[0]
+                data = all_values[1:]
+                
+                # Logika ini membangun ulang data, mengabaikan kolom dengan header kosong
+                processed_records = []
+                for row in data:
+                    record = {}
+                    for i, header in enumerate(headers):
+                        if header:  # Kunci: Abaikan header jika string kosong ''
+                            try:
+                                record[header] = row[i]
+                            except IndexError:
+                                record[header] = None # Handle jika baris lebih pendek dari header
+                    if record:
+                        processed_records.append(record)
+                
+                if processed_records:
+                    df = pd.DataFrame(processed_records)
+                else:
+                    # Buat DataFrame kosong dengan kolom yang benar jika tidak ada baris data
+                    df = pd.DataFrame(columns=[h for h in headers if h])
+            # --- AKHIR DARI PERBAIKAN ---
+
             # Konversi kolom yang relevan ke numerik, ganti error dengan NaN
             for col in ['Harga', 'Terjual/Bulan', 'Omzet', 'Stok']:
                 if col in df.columns:
@@ -253,87 +280,94 @@ else:
 
     with tab2:
         st.header("⚖️ Pilih Produk untuk Dibandingkan")
-        all_products_list = df_db_klik['Nama Produk'].unique().tolist()
-        selected_product = st.selectbox("Pilih produk dari DB KLIK", all_products_list, index=0)
-        
-        if selected_product:
-            # Data produk utama
-            produk_db_klik_hist = df_db_klik_full[df_db_klik_full['Nama Produk'] == selected_product].sort_values('Tanggal')
-            produk_db_klik_latest = produk_db_klik_hist.iloc[-1]
+        all_products_list = df_db_klik['Nama Produk'].unique().tolist() if not df_db_klik.empty else []
+        if not all_products_list:
+            st.warning("Tidak ada produk DB KLIK yang tersedia untuk perbandingan.")
+        else:
+            selected_product = st.selectbox("Pilih produk dari DB KLIK", all_products_list, index=0)
             
-            st.subheader(f"Data Utama: {selected_product}")
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Harga Terakhir", f"Rp{produk_db_klik_latest['Harga']:,.0f}")
-            status_db_klik = "READY" if produk_db_klik_latest['Nama Produk'] in db_klik_ready['Nama Produk'].values else "HABIS"
-            col2.metric("Status", status_db_klik)
-            col3.metric("Stok", produk_db_klik_latest.get('Stok', 'N/A'))
+            if selected_product:
+                # Data produk utama
+                produk_db_klik_hist = df_db_klik_full[df_db_klik_full['Nama Produk'] == selected_product].sort_values('Tanggal')
+                produk_db_klik_latest = produk_db_klik_hist.iloc[-1]
+                
+                st.subheader(f"Data Utama: {selected_product}")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Harga Terakhir", f"Rp{produk_db_klik_latest['Harga']:,.0f}")
+                status_db_klik = "READY" if produk_db_klik_latest['Nama Produk'] in db_klik_ready['Nama Produk'].values else "HABIS"
+                col2.metric("Status", status_db_klik)
+                col3.metric("Stok", produk_db_klik_latest.get('Stok', 'N/A'))
 
-            # Line chart harga
-            fig_price = px.line(produk_db_klik_hist, x='Tanggal', y='Harga', title=f'Perubahan Harga {selected_product}', markers=True)
-            
-            # Cari di toko lain
-            st.subheader("Perbandingan di Toko Kompetitor")
-            competitor_data = []
-            store_names = [name.replace(" - REKAP - READY", "") for name in processed_data.keys() if "READY" in name and "DB KLIK" not in name]
-            
-            for store in store_names:
-                df_ready = processed_data.get(f"{store} - REKAP - READY", pd.DataFrame())
-                df_habis = processed_data.get(f"{store} - REKAP - HABIS", pd.DataFrame())
-                df_store = pd.concat([df_ready, df_habis])
-                if df_store.empty or 'Nama Produk' not in df_store.columns: continue
+                # Line chart harga
+                fig_price = px.line(produk_db_klik_hist, x='Tanggal', y='Harga', title=f'Perubahan Harga {selected_product}', markers=True)
+                
+                # Cari di toko lain
+                st.subheader("Perbandingan di Toko Kompetitor")
+                competitor_data = []
+                store_names = [name.replace(" - REKAP - READY", "") for name in processed_data.keys() if "READY" in name and "DB KLIK" not in name]
+                
+                for store in store_names:
+                    df_ready = processed_data.get(f"{store} - REKAP - READY", pd.DataFrame())
+                    df_habis = processed_data.get(f"{store} - REKAP - HABIS", pd.DataFrame())
+                    df_store = pd.concat([df_ready, df_habis])
+                    if df_store.empty or 'Nama Produk' not in df_store.columns: continue
 
-                match, score = process.extractOne(selected_product, df_store['Nama Produk'].unique(), scorer=fuzz.token_sort_ratio)
-                if score >= fuzzy_threshold:
-                    matched_hist = df_store[df_store['Nama Produk'] == match].sort_values('Tanggal')
-                    matched_latest = matched_hist.iloc[-1]
-                    status_kompetitor = "READY" if matched_latest['Nama Produk'] in df_ready['Nama Produk'].values else "HABIS"
-                    selisih = matched_latest['Harga'] - produk_db_klik_latest['Harga']
-                    
-                    competitor_data.append({
-                        'Toko': store, 'Produk Kompetitor': match, 'Harga': matched_latest['Harga'],
-                        'Status': status_kompetitor, 'Stok': matched_latest.get('Stok', 'N/A'), 'Selisih': selisih
-                    })
-                    # Tambah ke line chart
-                    fig_price.add_scatter(x=matched_hist['Tanggal'], y=matched_hist['Harga'], mode='lines+markers', name=store)
-            
-            st.plotly_chart(fig_price, use_container_width=True)
+                    match, score = process.extractOne(selected_product, df_store['Nama Produk'].unique(), scorer=fuzz.token_sort_ratio)
+                    if score >= fuzzy_threshold:
+                        matched_hist = df_store[df_store['Nama Produk'] == match].sort_values('Tanggal')
+                        if matched_hist.empty: continue
+                        matched_latest = matched_hist.iloc[-1]
+                        status_kompetitor = "READY" if matched_latest['Nama Produk'] in df_ready['Nama Produk'].values else "HABIS"
+                        selisih = matched_latest['Harga'] - produk_db_klik_latest['Harga']
+                        
+                        competitor_data.append({
+                            'Toko': store, 'Produk Kompetitor': match, 'Harga': matched_latest['Harga'],
+                            'Status': status_kompetitor, 'Stok': matched_latest.get('Stok', 'N/A'), 'Selisih': selisih
+                        })
+                        # Tambah ke line chart
+                        fig_price.add_scatter(x=matched_hist['Tanggal'], y=matched_hist['Harga'], mode='lines+markers', name=store)
+                
+                st.plotly_chart(fig_price, use_container_width=True)
 
-            if competitor_data:
-                df_competitor = pd.DataFrame(competitor_data)
-                def format_selisih(s):
-                    if s > 0: return f"Lebih Mahal (Rp{s:,.0f})"
-                    elif s < 0: return f"Lebih Murah (Rp{abs(s):,.0f})"
-                    return "Harga Sama"
-                df_competitor['Perbandingan'] = df_competitor['Selisih'].apply(format_selisih)
-                st.dataframe(df_competitor[['Toko', 'Produk Kompetitor', 'Harga', 'Status', 'Stok', 'Perbandingan']], use_container_width=True)
-            else:
-                st.info("Tidak ditemukan produk serupa di toko kompetitor.")
+                if competitor_data:
+                    df_competitor = pd.DataFrame(competitor_data)
+                    def format_selisih(s):
+                        if s > 0: return f"Lebih Mahal (Rp{s:,.0f})"
+                        elif s < 0: return f"Lebih Murah (Rp{abs(s):,.0f})"
+                        return "Harga Sama"
+                    df_competitor['Perbandingan'] = df_competitor['Selisih'].apply(format_selisih)
+                    st.dataframe(df_competitor[['Toko', 'Produk Kompetitor', 'Harga', 'Status', 'Stok', 'Perbandingan']], use_container_width=True)
+                else:
+                    st.info("Tidak ditemukan produk serupa di toko kompetitor.")
 
     with tab3:
         st.header("🏢 Analisis Brand di Toko Kompetitor")
         store_list = sorted([name.replace(" - REKAP - READY", "") for name in processed_data if "READY" in name])
-        selected_store = st.selectbox("Pilih Toko untuk dianalisis", store_list)
-        
-        if selected_store:
-            df_ready = processed_data.get(f"{selected_store} - REKAP - READY", pd.DataFrame())
-            df_habis = processed_data.get(f"{selected_store} - REKAP - HABIS", pd.DataFrame())
-            df_full_store = pd.concat([df_ready, df_habis]) if not df_ready.empty or not df_habis.empty else pd.DataFrame()
+        if not store_list:
+            st.warning("Tidak ada data toko yang tersedia untuk dianalisis.")
+        else:
+            selected_store = st.selectbox("Pilih Toko untuk dianalisis", store_list)
+            
+            if selected_store:
+                df_ready = processed_data.get(f"{selected_store} - REKAP - READY", pd.DataFrame())
+                df_habis = processed_data.get(f"{selected_store} - REKAP - HABIS", pd.DataFrame())
+                df_full_store = pd.concat([df_ready, df_habis]) if not df_ready.empty or not df_habis.empty else pd.DataFrame()
 
-            if df_full_store.empty:
-                st.warning(f"Tidak ada data untuk {selected_store} pada rentang tanggal ini.")
-            else:
-                brand_analysis = df_full_store.groupby('Brand').agg(
-                    Total_Omzet=('Omzet', 'sum'),
-                    Unit_Terjual=('Terjual/Bulan', 'sum')
-                ).sort_values('Total_Omzet', ascending=False).reset_index()
+                if df_full_store.empty:
+                    st.warning(f"Tidak ada data untuk {selected_store} pada rentang tanggal ini.")
+                else:
+                    brand_analysis = df_full_store.groupby('Brand').agg(
+                        Total_Omzet=('Omzet', 'sum'),
+                        Unit_Terjual=('Terjual/Bulan', 'sum')
+                    ).sort_values('Total_Omzet', ascending=False).reset_index()
 
-                st.subheader(f"Analisis Brand di {selected_store}")
-                col1, col2 = st.columns(2)
-                col1.dataframe(brand_analysis, use_container_width=True)
-                
-                fig_brand_pie = px.pie(brand_analysis.head(10), values='Total_Omzet', names='Brand', title=f'Top 10 Brand di {selected_store}')
-                fig_brand_pie.update_traces(textposition='inside', textinfo='percent+label')
-                col2.plotly_chart(fig_brand_pie, use_container_width=True)
+                    st.subheader(f"Analisis Brand di {selected_store}")
+                    col1, col2 = st.columns(2)
+                    col1.dataframe(brand_analysis, use_container_width=True)
+                    
+                    fig_brand_pie = px.pie(brand_analysis.head(10), values='Total_Omzet', names='Brand', title=f'Top 10 Brand di {selected_store}')
+                    fig_brand_pie.update_traces(textposition='inside', textinfo='percent+label')
+                    col2.plotly_chart(fig_brand_pie, use_container_width=True)
 
     with tab4:
         st.header("📦 Tren Status Stok Mingguan per Toko")
@@ -403,23 +437,26 @@ else:
             all_products_df['Minggu'] = all_products_df['Tanggal'].dt.to_period('W').apply(lambda r: r.start_time).dt.date
             unique_weeks = sorted(all_products_df['Minggu'].unique(), reverse=True)
 
-            col1, col2 = st.columns(2)
-            target_week = col1.selectbox("Pilih Minggu Target", unique_weeks, index=0)
-            comparison_week = col2.selectbox("Pilih Minggu Pembanding", unique_weeks, index=min(1, len(unique_weeks)-1))
+            if len(unique_weeks) < 2:
+                st.warning("Data tidak cukup untuk perbandingan minggu. Dibutuhkan data dari minimal 2 minggu yang berbeda.")
+            else:
+                col1, col2 = st.columns(2)
+                target_week = col1.selectbox("Pilih Minggu Target", unique_weeks, index=0)
+                comparison_week = col2.selectbox("Pilih Minggu Pembanding", unique_weeks, index=min(1, len(unique_weeks)-1))
 
-            if target_week and comparison_week and target_week != comparison_week:
-                produk_target = set(all_products_df[all_products_df['Minggu'] == target_week]['Nama Produk'].unique())
-                produk_pembanding = set(all_products_df[all_products_df['Minggu'] == comparison_week]['Nama Produk'].unique())
-                
-                produk_baru = list(produk_target - produk_pembanding)
-                
-                st.subheader(f"Ditemukan {len(produk_baru)} produk baru pada minggu {target_week} dibandingkan {comparison_week}")
-                
-                if produk_baru:
-                    df_produk_baru = all_products_df[all_products_df['Nama Produk'].isin(produk_baru)].sort_values('Tanggal', ascending=False).drop_duplicates('Nama Produk', keep='first')
-                    st.dataframe(df_produk_baru[['Nama Produk', 'Harga', 'Stok', 'Brand']], use_container_width=True)
-            elif target_week == comparison_week:
-                st.warning("Minggu target dan pembanding tidak boleh sama.")
+                if target_week and comparison_week and target_week != comparison_week:
+                    produk_target = set(all_products_df[all_products_df['Minggu'] == target_week]['Nama Produk'].unique())
+                    produk_pembanding = set(all_products_df[all_products_df['Minggu'] == comparison_week]['Nama Produk'].unique())
+                    
+                    produk_baru = list(produk_target - produk_pembanding)
+                    
+                    st.subheader(f"Ditemukan {len(produk_baru)} produk baru pada minggu {target_week} dibandingkan {comparison_week}")
+                    
+                    if produk_baru:
+                        df_produk_baru = all_products_df[all_products_df['Nama Produk'].isin(produk_baru)].sort_values('Tanggal', ascending=False).drop_duplicates('Nama Produk', keep='first')
+                        st.dataframe(df_produk_baru[['Nama Produk', 'Harga', 'Stok', 'Brand']], use_container_width=True)
+                elif target_week == comparison_week:
+                    st.warning("Minggu target dan pembanding tidak boleh sama.")
         else:
             st.warning("Tidak ada data produk yang cukup untuk analisis produk baru.")
 
