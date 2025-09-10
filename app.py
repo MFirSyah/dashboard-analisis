@@ -1,8 +1,8 @@
 # ===================================================================================
-#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL V4
+#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL V5
 #  Dibuat oleh: Firman & Asisten AI Gemini
 #  Metode Koneksi: Aman & Stabil (gspread + st.secrets individual)
-#  Peningkatan: Perbaikan Logika Agregasi Omzet Total
+#  Peningkatan: Penambahan Normalisasi Nama Produk untuk Akurasi
 # ===================================================================================
 
 # ===================================================================================
@@ -97,6 +97,12 @@ def load_data_from_gsheets():
     final_rename_mapping = {'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga', 'BRAND': 'Brand', 'STOK': 'Stok', 'TOKO': 'Toko', 'STATUS': 'Status'}
     rekap_df.rename(columns=final_rename_mapping, inplace=True)
     
+    # --- [PERBAIKAN KUNCI] ---
+    # Normalisasi nama produk untuk menghilangkan spasi ekstra di awal/akhir
+    # yang bisa menyebabkan salah hitung pada saat agregasi.
+    if 'Nama Produk' in rekap_df.columns:
+        rekap_df['Nama Produk'] = rekap_df['Nama Produk'].astype(str).str.strip()
+
     if not kamus_brand_df.empty and 'ALIAS' in kamus_brand_df.columns and 'BRAND_UTAMA' in kamus_brand_df.columns:
         st.success("Kamus brand ditemukan, melakukan standardisasi nama brand.")
         kamus_brand_df.dropna(subset=['ALIAS', 'BRAND_UTAMA'], inplace=True)
