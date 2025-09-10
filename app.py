@@ -1,19 +1,3 @@
-# Streamlit App: Analisis Omzet Multi-Toko
-
-Berikut saya buatkan dua file dalam satu dokumen: `app.py` (kode Streamlit utama) dan `requirements.txt`.
-
-> **Catatan penting sebelum menjalankan**
->
-> * Anda harus menaruh kredensial Google Service Account (JSON) ke dalam `st.secrets["gcp_service_account"]` atau mengisi `st.secrets` sesuai instruksi di bagian *Setup* pada `app.py`.
-> * Beri akses `viewer` pada Google Sheet untuk service account email (jika menggunakan GSheet). ID GSheet yang Anda berikan: `1hl7YPEPg4aaEheN5fBKk65YX3-KdkQBRHCJWhVr9kVQ`.
-> * Jika tidak ingin gunakan GSheet, aplikasi otomatis mencoba membaca file lokal `DATA_REKAP.xlsx` (sudah Anda upload di repository jika deploy ke Streamlit Cloud).
-
----
-
-## File: `app.py`
-
-```python
-# app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -456,43 +440,3 @@ if st.session_state.get("analisis_selesai"):
         # end tabs
 
         st.success("Analisis selesai. Gunakan sidebar untuk mengubah rentang tanggal atau threshold fuzzy, atau hapus cache untuk refresh data.")
-
-```
-
----
-
-## File: `requirements.txt`
-
-```
-streamlit==1.24.0
-pandas
-numpy
-plotly
-gspread
-oauth2client
-rapidfuzz
-openpyxl
-xlrd
-```
-
----
-
-## Setup singkat & deployment ke share.streamlit.io
-
-1. Simpan `app.py` dan `requirements.txt` di repository GitHub Anda (root repo).
-2. Jika ingin tarik data dari Google Sheets, buat Service Account di Google Cloud, unduh JSON, lalu masukkan JSON ke `st.secrets` di Streamlit Cloud atau ke `secrets.toml` lokal saat pengembangan. Contoh struktur di `st.secrets`:
-
-```toml
-[gcp_service_account]
-project_id = "..."
-private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-client_email = "...@...iam.gserviceaccount.com"
-# dll sesuai JSON
-```
-
-3. Pastikan sheet dibagikan (share) ke email service account.
-4. Deploy repo ke share.streamlit.io.
-
----
-
-Jika Anda ingin, saya bisa: menyesuaikan kode untuk struktur kolom spesifik file `DATA_REKAP.xlsx` yang Anda upload (tolong beri contoh 10 baris header & 10 baris data) atau membuat versi yang lebih ringan/lebih cepat.
