@@ -1,8 +1,8 @@
 # ===================================================================================
-#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL V4
+#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL V5 (Perbaikan)
 #  Dibuat oleh: Firman & Asisten AI Gemini
 #  Metode Koneksi: Aman & Stabil (gspread + st.secrets individual)
-#  Peningkatan: Logika Kalkulasi Omzet disesuaikan dengan referensi user.
+#  Peningkatan: Menghapus duplikasi kode pada Tab 1 untuk ringkasan mingguan.
 # ===================================================================================
 
 # ===================================================================================
@@ -291,25 +291,28 @@ with tab1:
     else:
         st.info("Tidak ada data omzet brand.")
 
+    # --- PERBAIKAN DIMULAI DI SINI ---
     st.subheader(f"{section_counter}. Ringkasan Kinerja Mingguan (WoW Growth)")
     section_counter += 1
-    # --- PERBAIKAN KALKULASI OMZET SESUAI REFERENSI DARI FILE ANDA ---
-    # Logika ini diambil persis dari file referensi Anda.
-    # Menjumlahkan total 'Omzet' dari semua entri (Ready & Habis)
-    # untuk toko DB KLIK yang dikelompokkan per minggu.
-    # PERUBAHAN 9: Ringkasan Kinerja Mingguan dipindah ke Tab 1
-    st.subheader(f"{section_counter}. Ringkasan Kinerja Mingguan (WoW Growth)")
-    section_counter += 1
-    weekly_summary_tab1 = main_store_df.groupby('Minggu').agg(Omzet=('Omzet', 'sum'), Penjualan_Unit=('Terjual per Bulan', 'sum')).reset_index()
-    weekly_summary_tab1['Pertumbuhan Omzet (WoW)'] = weekly_summary_tab1['Omzet'].pct_change().apply(format_wow_growth)
-    weekly_summary_tab1['Omzet'] = weekly_summary_tab1['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
-    st.dataframe(weekly_summary_tab1[['Minggu', 'Omzet', 'Penjualan_Unit', 'Pertumbuhan Omzet (WoW)']].style.apply(lambda s: s.map(style_wow_growth), subset=['Pertumbuhan Omzet (WoW)']), use_container_width=True, hide_index=True)
-
-    # --- AKHIR PERBAIKAN ---
     
+    # Menjumlahkan total 'Omzet' dan 'Terjual per Bulan' dari toko utama yang dikelompokkan per minggu.
+    weekly_summary_tab1 = main_store_df.groupby('Minggu').agg(
+        Omzet=('Omzet', 'sum'), 
+        Penjualan_Unit=('Terjual per Bulan', 'sum')
+    ).reset_index()
+    
+    # Menghitung pertumbuhan omzet (WoW) dan memformat kolom
     weekly_summary_tab1['Pertumbuhan Omzet (WoW)'] = weekly_summary_tab1['Omzet'].pct_change().apply(format_wow_growth)
     weekly_summary_tab1['Omzet'] = weekly_summary_tab1['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
-    st.dataframe(weekly_summary_tab1[['Minggu', 'Omzet', 'Penjualan_Unit', 'Pertumbuhan Omzet (WoW)']].style.apply(lambda s: s.map(style_wow_growth), subset=['Pertumbuhan Omzet (WoW)']), use_container_width=True, hide_index=True)
+    
+    # Menampilkan dataframe dengan styling
+    st.dataframe(
+        weekly_summary_tab1[['Minggu', 'Omzet', 'Penjualan_Unit', 'Pertumbuhan Omzet (WoW)']]
+        .style.apply(lambda s: s.map(style_wow_growth), subset=['Pertumbuhan Omzet (WoW)']), 
+        use_container_width=True, 
+        hide_index=True
+    )
+    # --- AKHIR PERBAIKAN ---
 
 with tab2:
     st.header(f"Perbandingan Produk '{my_store_name}' dengan Kompetitor")
@@ -434,4 +437,3 @@ with tab6:
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)].copy()
                         new_products_df['Harga_fmt'] = new_products_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
                         st.dataframe(new_products_df[['Nama Produk', 'Harga_fmt', 'Stok', 'Brand']].rename(columns={'Harga_fmt':'Harga'}), use_container_width=True, hide_index=True)
-
