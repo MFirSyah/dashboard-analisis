@@ -79,7 +79,10 @@ def load_data_from_gsheets():
             header = values[0]
             data = values[1:]
             df = pd.DataFrame(data, columns=header)
-            df = df.loc[:, ~df.columns.str.strip().eq('')] # Hapus kolom kosong
+            # Perbaikan untuk error: 'Index' object has no attribute 'eq'
+            # Menghapus kolom yang tidak memiliki nama (kosong atau hanya spasi) dengan cara yang lebih aman.
+            valid_columns = [col for col in df.columns if str(col).strip()]
+            df = df[valid_columns]
 
             if sheet_name.upper() == 'DATABASE':
                 database_df = df
@@ -109,6 +112,7 @@ def load_data_from_gsheets():
         return df_to_norm
 
     database_df = norm_cols(database_df) if not database_df.empty else database_df
+    kamus_brand_df = norm_cols(kamus_brand_df) if not kamus_brand_df.empty else kamus_brand_df
     rekap_df = norm_cols(rekap_df)
 
     # Pemetaan nama kolom ke format standar
