@@ -1,8 +1,8 @@
 # ===================================================================================
-#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL V2
+#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL V3
 #  Dibuat oleh: Firman & Asisten AI Gemini
 #  Metode Koneksi: Aman & Stabil (gspread + st.secrets individual)
-#  Peningkatan: Perbaikan Logika Kalkulasi Omzet & Visualisasi Pie Chart
+#  Peningkatan: Perbaikan Logika Omzet, Penambahan Kolom Tanggal, & Visualisasi Pie Chart
 # ===================================================================================
 
 # ===================================================================================
@@ -27,8 +27,6 @@ st.set_page_config(layout="wide", page_title="Dashboard Analisis")
 def load_data_from_gsheets():
     """
     Fungsi untuk memuat dan memproses data dari Google Sheets.
-    Versi ini telah diperbaiki untuk menangani error header duplikat dan
-    menambahkan logika standardisasi brand.
     """
     try:
         creds_dict = {
@@ -253,22 +251,30 @@ with tab1:
         category_sales = main_store_df_cat.groupby('Kategori')['Terjual per Bulan'].sum().reset_index()
         
         if not category_sales.empty:
-            # ... (Kode untuk Kategori Terlaris tidak berubah) ...
             col1, col2 = st.columns([1,2])
             sort_order_cat = col1.radio("Urutkan:", ["Terlaris", "Kurang Laris"], horizontal=True, key="cat_sort")
             top_n_cat = col2.number_input("Tampilkan Top:", 1, len(category_sales), min(10, len(category_sales)), key="cat_top_n")
-            
             cat_sales_sorted = category_sales.sort_values('Terjual per Bulan', ascending=(sort_order_cat == "Kurang Laris")).head(top_n_cat)
             fig_cat = px.bar(cat_sales_sorted, x='Kategori', y='Terjual per Bulan', title=f'Top {top_n_cat} Kategori', text_auto=True)
             st.plotly_chart(fig_cat, use_container_width=True)
 
     st.subheader(f"{section_counter}. Produk Terlaris")
     section_counter += 1
+    # --- PERBAIKAN TABEL PRODUK TERLARIS DIMULAI DI SINI ---
     top_products = main_store_df.sort_values('Terjual per Bulan', ascending=False).head(15).copy()
     top_products['Harga_rp'] = top_products['Harga'].apply(lambda x: f"Rp {x:,.0f}")
     top_products['Omzet_rp'] = top_products['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
-    display_df_top = top_products[['Nama Produk', 'Harga_rp', 'Terjual per Bulan', 'Omzet_rp', 'Perbandingan minggu lalu']].rename(columns={'Harga_rp': 'Harga', 'Omzet_rp': 'Omzet'})
-    st.dataframe(display_df_top.style.apply(lambda s: s.map(style_wow_growth), subset=['Perbandingan minggu lalu']), use_container_width=True, hide_index=True)
+    top_products['Tanggal_fmt'] = top_products['Tanggal'].dt.strftime('%Y-%m-%d')
+    
+    display_df_top = top_products[['Nama Produk', 'Harga_rp', 'Omzet_rp', 'Tanggal_fmt', 'Perbandingan minggu lalu']].rename(
+        columns={'Harga_rp': 'Harga', 'Omzet_rp': 'Omzet', 'Tanggal_fmt': 'Tanggal'}
+    )
+    st.dataframe(
+        display_df_top.style.apply(lambda s: s.map(style_wow_growth), subset=['Perbandingan minggu lalu']), 
+        use_container_width=True, 
+        hide_index=True
+    )
+    # --- AKHIR PERBAIKAN TABEL PRODUK TERLARIS ---
 
     st.subheader(f"{section_counter}. Distribusi Omzet Brand")
     section_counter += 1
@@ -279,8 +285,11 @@ with tab1:
                                names='Brand', 
                                values='Omzet', 
                                title='Distribusi Omzet Top 7 Brand')
-        fig_brand_pie.update_traces(textposition='outside', textinfo='percent+label',
-                                    hovertemplate='<b>%{label}</b><br>Omzet: Rp %{value:,.0f}<br>Persentase: %{percent}')
+        # Menambahkan format Rupiah dan persentase di luar chart
+        fig_brand_pie.update_traces(
+            textposition='outside', 
+            texttemplate='<b>%{label}</b><br>%{percent}<br>Rp %{value:,.0f}'
+        )
         st.plotly_chart(fig_brand_pie, use_container_width=True)
         # --- AKHIR PERBAIKAN PIE CHART ---
     else:
@@ -289,11 +298,8 @@ with tab1:
     st.subheader(f"{section_counter}. Ringkasan Kinerja Mingguan (WoW Growth)")
     section_counter += 1
     # --- PERBAIKAN KALKULASI OMZET DIMULAI DI SINI ---
-    # Ambil data terbaru untuk setiap produk unik dalam satu minggu
-    main_store_latest_per_week = main_store_df.sort_values('Tanggal').drop_duplicates(subset=['Minggu', 'Nama Produk'], keep='last')
-    
-    # Hitung ringkasan berdasarkan data yang sudah bersih
-    weekly_summary_tab1 = main_store_latest_per_week.groupby('Minggu').agg(
+    # Menggunakan logika asli: menjumlahkan semua omzet dalam satu minggu
+    weekly_summary_tab1 = main_store_df.groupby('Minggu').agg(
         Omzet=('Omzet', 'sum'), 
         Penjualan_Unit=('Terjual per Bulan', 'sum')
     ).reset_index()
@@ -304,7 +310,6 @@ with tab1:
     st.dataframe(weekly_summary_tab1[['Minggu', 'Omzet', 'Penjualan_Unit', 'Pertumbuhan Omzet (WoW)']].style.apply(lambda s: s.map(style_wow_growth), subset=['Pertumbuhan Omzet (WoW)']), use_container_width=True, hide_index=True)
 
 with tab2:
-    # ... (Kode untuk Tab 2 tidak berubah) ...
     st.header(f"Perbandingan Produk '{my_store_name}' dengan Kompetitor")
     st.subheader("1. Detail Produk di Toko Anda (Data Terbaru)")
     if not main_store_df.empty:
@@ -365,7 +370,6 @@ with tab2:
                                     c3.metric("Stok", match_info['Stok'])
 
 with tab3:
-    # ... (Kode untuk Tab 3 tidak berubah) ...
     st.header("Analisis Brand di Toko Kompetitor")
     if competitor_df.empty:
         st.warning("Tidak ada data kompetitor pada rentang tanggal ini.")
@@ -384,7 +388,6 @@ with tab3:
                     st.info("Tidak ada data brand untuk toko ini.")
 
 with tab4:
-    # ... (Kode untuk Tab 4 tidak berubah) ...
     st.header("Tren Status Stok Mingguan per Toko")
     stock_trends = df_filtered.groupby(['Minggu', 'Toko', 'Status']).size().unstack(fill_value=0).reset_index()
     if 'Tersedia' not in stock_trends.columns: stock_trends['Tersedia'] = 0
@@ -396,16 +399,12 @@ with tab4:
     st.dataframe(stock_trends.set_index('Minggu'), use_container_width=True)
 
 with tab5:
-    # ... (Kode untuk Tab 5 tidak berubah) ...
     st.header("Analisis Kinerja Penjualan (Semua Toko)")
-    # Ambil data terbaru per produk per minggu untuk semua toko
-    all_stores_latest_per_week = df_filtered.sort_values('Tanggal').drop_duplicates(subset=['Minggu', 'Toko', 'Nama Produk'], keep='last')
-    weekly_omzet = all_stores_latest_per_week.groupby(['Minggu', 'Toko'])['Omzet'].sum().reset_index()
-    fig_weekly_omzet = px.line(weekly_omzet, x='Minggu', y='Omzet', color='Toko', markers=True, title='Perbandingan Omzet Mingguan Antar Toko')
+    all_stores_latest_per_week = df_filtered.groupby(['Minggu', 'Toko'])['Omzet'].sum().reset_index()
+    fig_weekly_omzet = px.line(all_stores_latest_per_week, x='Minggu', y='Omzet', color='Toko', markers=True, title='Perbandingan Omzet Mingguan Antar Toko')
     st.plotly_chart(fig_weekly_omzet, use_container_width=True)
 
 with tab6:
-    # ... (Kode untuk Tab 6 tidak berubah) ...
     st.header("Analisis Produk Baru Mingguan")
     weeks = sorted(df_filtered['Minggu'].unique())
     if len(weeks) < 2:
