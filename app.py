@@ -209,6 +209,14 @@ df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambd
 main_store_df = df_filtered[df_filtered['Toko'] == my_store_name].copy()
 competitor_df = df_filtered[df_filtered['Toko'] != my_store_name].copy()
 
+# --- [PERBAIKAN UTAMA LOGIKA OMZET] ---
+# Untuk menghindari penghitungan omzet ganda dalam satu minggu (karena data harian),
+# kita hanya ambil entri data TERAKHIR untuk setiap produk dalam minggu tersebut.
+# Semua kalkulasi omzet mingguan akan didasarkan pada dataframe ini.
+latest_entries_weekly = df_filtered.loc[df_filtered.groupby(['Minggu', 'Toko', 'Nama Produk'])['Tanggal'].idxmax()]
+st.info("💡 Kalkulasi omzet mingguan kini didasarkan pada data snapshot terakhir setiap produk per minggu untuk akurasi maksimal.")
+
+
 st.sidebar.divider()
 st.sidebar.header("Ekspor & Info Data")
 st.sidebar.info(f"Data yang akan diekspor berisi **{len(df_filtered)}** baris.")
@@ -292,13 +300,14 @@ with tab1:
 
     st.subheader(f"{section_counter}. Ringkasan Kinerja Mingguan (WoW Growth)")
     section_counter += 1
-    # --- PERBAIKAN KALKULASI OMZET SESUAI LOGIKA TAB 5 ---
-    # Logika diubah untuk meniru Tab 5: agregasi semua toko dulu, baru filter.
-    weekly_summary_all = df_filtered.groupby(['Minggu', 'Toko']).agg(
+    # --- PERBAIKAN KALKULASI OMZET BERDASARKAN DATA TERAKHIR PER MINGGU ---
+    weekly_summary_all = latest_entries_weekly.groupby(['Minggu', 'Toko']).agg(
         Omzet=('Omzet', 'sum'),
         Penjualan_Unit=('Terjual per Bulan', 'sum')
     ).reset_index()
+    
     weekly_summary_tab1 = weekly_summary_all[weekly_summary_all['Toko'] == my_store_name].copy()
+    weekly_summary_tab1.sort_values('Minggu', inplace=True) # Memastikan urutan benar untuk pct_change
     # --- AKHIR PERBAIKAN ---
     
     weekly_summary_tab1['Pertumbuhan Omzet (WoW)'] = weekly_summary_tab1['Omzet'].pct_change().apply(format_wow_growth)
@@ -397,33 +406,26 @@ with tab4:
 with tab5:
     st.header("Analisis Kinerja Penjualan (Semua Toko)")
     
-    # --- Grafik Garis (Tetap ada) ---
-    all_stores_latest_per_week = df_filtered.groupby(['Minggu', 'Toko'])['Omzet'].sum().reset_index()
-    fig_weekly_omzet = px.line(all_stores_latest_per_week, x='Minggu', y='Omzet', color='Toko', markers=True, title='Perbandingan Omzet Mingguan Antar Toko')
+    # --- Grafik Garis (Menggunakan data yang sudah diperbaiki) ---
+    all_stores_latest_per_week = latest_entries_weekly.groupby(['Minggu', 'Toko'])['Omzet'].sum().reset_index()
+    fig_weekly_omzet = px.line(all_stores_latest_per_week, x='Minggu', y='Omzet', color='Toko', markers=True, title='Perbandingan Omzet Mingguan Antar Toko (Berdasarkan Snapshot Terakhir)')
     st.plotly_chart(fig_weekly_omzet, use_container_width=True)
     
-    # --- Tabel Pivot Omzet (Tambahan Baru) ---
+    # --- Tabel Pivot Omzet (Tidak perlu diubah karena sudah berdasarkan Tanggal) ---
     st.subheader("Tabel Rincian Omzet per Tanggal")
     if not df_filtered.empty:
-        # Membuat tabel pivot
         omzet_pivot = df_filtered.pivot_table(
             index='Toko', 
             columns='Tanggal', 
             values='Omzet', 
             aggfunc='sum'
         ).fillna(0)
-
-        # Mengurutkan kolom tanggal (sudah otomatis jika tipe datanya datetime)
-        # Format kolom tanggal menjadi string yang lebih mudah dibaca
         omzet_pivot.columns = [col.strftime('%d %b %Y') for col in omzet_pivot.columns]
         
-        # Format nilai omzet menjadi format Rupiah
         for col in omzet_pivot.columns:
             omzet_pivot[col] = omzet_pivot[col].apply(lambda x: f"Rp {int(x):,}" if x > 0 else "-")
             
-        # Reset index agar 'Toko' menjadi kolom biasa
         omzet_pivot.reset_index(inplace=True)
-        
         st.info("Anda bisa scroll tabel ini ke samping untuk melihat tanggal lainnya.")
         st.dataframe(omzet_pivot, use_container_width=True, hide_index=True)
     else:
@@ -456,3 +458,4 @@ with tab6:
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)].copy()
                         new_products_df['Harga_fmt'] = new_products_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
                         st.dataframe(new_products_df[['Nama Produk', 'Harga_fmt', 'Stok', 'Brand']].rename(columns={'Harga_fmt':'Harga'}), use_container_width=True, hide_index=True)
+
