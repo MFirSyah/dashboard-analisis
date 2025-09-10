@@ -1,7 +1,7 @@
 # ===================================================================================
 #  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR
 #  Dibuat oleh: Firman & Asisten AI Gemini
-#  Versi: Adaptasi Lanjutan
+#  Versi: Adaptasi Lanjutan (Kredensial Hardcoded)
 # ===================================================================================
 
 import streamlit as st
@@ -28,20 +28,33 @@ def load_data_from_gsheets():
     Memuat data dari Google Sheets. Fungsi ini mengambil data dari berbagai sheet,
     membersihkan, menormalkan, dan menggabungkannya menjadi DataFrame yang siap diolah.
     """
+    # --- PENTING: Ganti dengan Kunci Google Sheet Anda ---
+    GSHEET_KEY = "GANTI_DENGAN_KUNCI_SPREADSHEET_ANDA"
+
+    # Kredensial dimasukkan langsung ke dalam kode.
+    # Catatan: Untuk penggunaan production, sangat disarankan menggunakan st.secrets.
+    creds_dict = {
+        "type": "service_account",
+        "project_id": "iron-burner-455017-s8",
+        "private_key_id": "55f29c7fd9881bddfc794f7cc8ae7a03ef11a52a",
+        "private_key": """-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDV4rQ7b8qgXV4J\n08S4q0cYH42PQKz51OK1qS6yO0c633/0c2bviZ4hIvGlvz69rWir/G8PLqnpr/ZY\n4bbrwxmqhWjRSYkVfvNiZBvXO1thszcJUobLNAqiwuRKdW6AB0m6hXdmdoR5h68h\nhr/l36hrIaTgzEGsgrhKNdIjaJoX1MDmxQ5xRSzZuSeHgjLowEbD5riiklznvf9R\nCpOfdGkM1G04Auq40SLB9eKS5M/g0/6EUaub1IZU/R4zxe5gnrtn+aUsqa9FDpU6\nHefmEh4vfUsiGi9OQPEAvFLm+e2JOUnBr9rgUHGeIKNPR3pVn3rGFPiJ20TAiISW\nabuxVg8lAgMBAAECggEAZsJFAjta+AHzoLgQDwMnJIVgTx9tG5i2lT2jtDi7p6Li\niFD7dwFAqj3uKEpCPAH4xIyC1SH/u0jxi9Fhv1KcXas76TUxudSk3TQolhcr97wR\nKJbwMOefZoRJByb1QGh/+S+PZnhxfCv+rZZeUvRKJ7Jh0yj/MoEZRnomLCHgyqpo\nwBKAUnowO3bPnND3tSJ4m3zRc6n6CNCXwgM5glSY7l8d8/NI2CC/31IgRYvgBw/D\nSp7HBrFon04fnipQLPlVp5XiAAa08rC57p54g5VO4Y1SaG4c+JHifa3laMckfsBy\nVeSA9vHV47Y2TTFyT6N29pMFDropz++c9iiS4z3L/wKBgQD81q2tYlMkKNQTAJ2T\nE+OPLpUCaTe1Gz1nJw9CchBkaLuLHPn6pSzAmwM4olYslG1Li8GW+xlREkgqWedj\nkxAnmdmR94pa/0WWyLwGcEGwk6ZLlAZjzJ0iiPvcfv4D414gzdfpqfxgvVzoJVC6\n1lrdqwt0vpHzvRxm1kvlwsMwBwKBgQDYj1bYr6sgXZ011RVH64MgIiCXkoNvsCeH\nURoCasEpp7w1oihFLdZ1fnO7+L5NWg3OSk9fgGeyi5gxDxZ9P0P5pvLFeAGJCT6G\n5+vaim4wIJWX0Ph4IICUrQcSI8wk2tSkh2BR3yjAkJjqe+ipdn8/81De7S9BAPBn\nYb/+UUWkcwKBgQDaCjRqcoGqjD8fSAebn6o9fvlnw98TorMYMtn4/i7euGcLd+in\n2yu1ybhEbdKMzU9Xt+Ux08coX/C1/SQLffaPgCDdvTCmer/DYcascsBji2D8imHc\nTMcx0hoJM8bRCZHSDlHlov8PWh414IA3L8XapbfSbMmm/W3xzVpUgNocnwKBgHyC\nbTxIQ+tn52t8B7BCCDIBbRu4cTlV3mQ+jOW22zhH6D4t7VlY8WS8P25jpYZzsFxa\n/Se7e+N7vxT1x8hbB4oSIqLGTJutZPXLgh80WAXztg6DZ1gp18Ojd91GF6lY58lw\nzEBGPff5KvImK67DIoZyLpz9YZ3OHGpUGT7vG0thAoGBAKX8VPTdKkHg3Hxjrmuk\n7FMn8Jf32LIMMH0/k/UuErCnfrBDCGNrsjSV7v0MAWzuNeWmUN8gmW+UGcJuowyo\n9D/yWsAf3FNoglIHN0Nl/xNMYysNCXiaN9UAFARNQiOhSj2jPAotErULbNx/JJKJ\nHdJng2gqPG0qTOvKl8qVHDck\n-----END PRIVATE KEY-----""",
+        "client_email": "streamlit-sheets-reader@iron-burner-455017-s8.iam.gserviceaccount.com",
+        "client_id": "112588498207488950708",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/streamlit-sheets-reader%40iron-burner-455017-s8.iam.gserviceaccount.com"
+    }
+
+    if GSHEET_KEY == "GANTI_DENGAN_KUNCI_SPREADSHEET_ANDA":
+        st.error("GAGAL KONEKSI: Harap ganti placeholder `GSHEET_KEY` di dalam kode `app.py` dengan Kunci Google Sheet Anda.")
+        return None, None
+
     try:
-        # Menggunakan st.secrets untuk otentikasi ke Google Sheets
-        creds_dict = {
-            "type": st.secrets["gcp_type"], "project_id": st.secrets["gcp_project_id"],
-            "private_key_id": st.secrets["gcp_private_key_id"], "private_key": st.secrets["gcp_private_key_raw"].replace('\\n', '\n'),
-            "client_email": st.secrets["gcp_client_email"], "client_id": st.secrets["gcp_client_id"],
-            "auth_uri": st.secrets["gcp_auth_uri"], "token_uri": st.secrets["gcp_token_uri"],
-            "auth_provider_x509_cert_url": st.secrets["gcp_auth_provider_x509_cert_url"],
-            "client_x509_cert_url": st.secrets["gcp_client_x509_cert_url"]
-        }
         gc = gspread.service_account_from_dict(creds_dict)
-        spreadsheet = gc.open_by_key(st.secrets["gsheet_key"])
+        spreadsheet = gc.open_by_key(GSHEET_KEY)
     except Exception as e:
-        st.error(f"GAGAL KONEKSI KE GOOGLE SHEETS: Pastikan st.secrets telah dikonfigurasi dengan benar. Detail: {e}")
+        st.error(f"GAGAL KONEKSI KE GOOGLE SHEETS: {e}")
         return None, None
 
     # Daftar sheet yang akan diambil
@@ -193,8 +206,8 @@ if not st.session_state.data_loaded:
                 st.session_state.data_loaded = True
                 st.rerun()
             else:
-                st.error("Gagal memuat data. Silakan periksa log di atas atau konfigurasi `secrets.toml` Anda.")
-    st.info("Pastikan file `secrets.toml` sudah terkonfigurasi untuk mengakses Google Sheets.")
+                st.error("Gagal memuat data. Silakan periksa log di atas dan pastikan `GSHEET_KEY` di dalam kode sudah benar.")
+    st.info("Kredensial Google Sheets telah dimasukkan ke dalam kode. Harap masukkan Kunci Google Sheet Anda di dalam file `app.py`.")
     st.stop()
 
 # ===================================================================================
@@ -540,3 +553,4 @@ with st.sidebar:
         mime='application/json',
         use_container_width=True
     )
+
