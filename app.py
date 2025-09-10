@@ -1,5 +1,5 @@
 # ===================================================================================
-#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL V3
+#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL V3 (FIXED)
 #  Dibuat oleh: Firman & Asisten AI Gemini
 #  Metode Koneksi: Aman & Stabil (gspread + st.secrets individual)
 #  Peningkatan: Perbaikan Logika Omzet, Penambahan Kolom Tanggal, & Visualisasi Pie Chart
@@ -221,6 +221,9 @@ st.sidebar.download_button(label="📥 Unduh sebagai JSON", data=json_data, file
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⭐ Analisis Toko Saya", "⚖️ Perbandingan Harga", "🏆 Analisis Brand Kompetitor", "📦 Status Stok Produk", "📈 Kinerja Penjualan", "📊 Analisis Mingguan"])
 
+# ===================================================================================
+# TAB 1 - Analisis Toko Saya
+# ===================================================================================
 with tab1:
     st.header(f"Analisis Kinerja Toko: {my_store_name}")
 
@@ -258,66 +261,53 @@ with tab1:
             fig_cat = px.bar(cat_sales_sorted, x='Kategori', y='Terjual per Bulan', title=f'Top {top_n_cat} Kategori', text_auto=True)
             st.plotly_chart(fig_cat, use_container_width=True)
 
-       st.subheader(f"{section_counter}. Ringkasan Kinerja Mingguan (WoW Growth)")
+    st.subheader(f"{section_counter}. Produk Terlaris")
     section_counter += 1
-    # --- PERBAIKAN KALKULASI OMZET MINGGUAN ---
-    # Menjumlahkan omzet dan unit penjualan per minggu
-    weekly_summary_tab1 = main_store_df.groupby('Minggu').agg(
-        Omzet=('Omzet', 'sum'),
-        Penjualan_Unit=('Terjual per Bulan', 'sum')
-    ).reset_index()
-
-    # Hitung pertumbuhan WoW berdasarkan total omzet mingguan
-    weekly_summary_tab1['Pertumbuhan Omzet (WoW)'] = (
-        weekly_summary_tab1['Omzet'].pct_change().apply(format_wow_growth)
+    top_products = main_store_df.sort_values('Terjual per Bulan', ascending=False).head(15).copy()
+    top_products['Harga_rp'] = top_products['Harga'].apply(lambda x: f"Rp {x:,.0f}")
+    top_products['Omzet_rp'] = top_products['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
+    top_products['Tanggal_fmt'] = top_products['Tanggal'].dt.strftime('%Y-%m-%d')
+    
+    display_df_top = top_products[['Nama Produk', 'Harga_rp', 'Omzet_rp', 'Tanggal_fmt', 'Perbandingan minggu lalu']].rename(
+        columns={'Harga_rp': 'Harga', 'Omzet_rp': 'Omzet', 'Tanggal_fmt': 'Tanggal'}
     )
-
-    # Format Rupiah untuk kolom omzet
-    weekly_summary_tab1['Omzet'] = weekly_summary_tab1['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
-
-    # Tampilkan tabel dengan highlight warna pertumbuhan
     st.dataframe(
-        weekly_summary_tab1[['Minggu', 'Omzet', 'Penjualan_Unit', 'Pertumbuhan Omzet (WoW)']]
-            .style.apply(lambda s: s.map(style_wow_growth), subset=['Pertumbuhan Omzet (WoW)']),
-        use_container_width=True, hide_index=True
+        display_df_top.style.apply(lambda s: s.map(style_wow_growth), subset=['Perbandingan minggu lalu']), 
+        use_container_width=True, 
+        hide_index=True
     )
-    # --- AKHIR PERBAIKAN ---
-
-    )
-    # --- AKHIR PERBAIKAN TABEL PRODUK TERLARIS ---
 
     st.subheader(f"{section_counter}. Distribusi Omzet Brand")
     section_counter += 1
     brand_omzet_main = main_store_df.groupby('Brand')['Omzet'].sum().reset_index()
     if not brand_omzet_main.empty:
-        # --- PERBAIKAN PIE CHART DIMULAI DI SINI ---
-        fig_brand_pie = px.pie(brand_omzet_main.sort_values('Omzet', ascending=False).head(7), 
-                               names='Brand', 
-                               values='Omzet', 
-                               title='Distribusi Omzet Top 7 Brand')
-        # Menambahkan format Rupiah dan persentase di luar chart
+        fig_brand_pie = px.pie(
+            brand_omzet_main.sort_values('Omzet', ascending=False).head(7), 
+            names='Brand', values='Omzet', 
+            title='Distribusi Omzet Top 7 Brand'
+        )
         fig_brand_pie.update_traces(
             textposition='outside', 
             texttemplate='<b>%{label}</b><br>%{percent}<br>Rp %{value:,.0f}'
         )
         st.plotly_chart(fig_brand_pie, use_container_width=True)
-        # --- AKHIR PERBAIKAN PIE CHART ---
     else:
         st.info("Tidak ada data omzet brand.")
 
+    # ✅ FIXED: Ringkasan Kinerja Mingguan
     st.subheader(f"{section_counter}. Ringkasan Kinerja Mingguan (WoW Growth)")
     section_counter += 1
-    # --- PERBAIKAN KALKULASI OMZET DIMULAI DI SINI ---
-    # Menggunakan logika asli: menjumlahkan semua omzet dalam satu minggu
     weekly_summary_tab1 = main_store_df.groupby('Minggu').agg(
-        Omzet=('Omzet', 'sum'), 
+        Omzet=('Omzet', 'sum'),
         Penjualan_Unit=('Terjual per Bulan', 'sum')
     ).reset_index()
-    # --- AKHIR PERBAIKAN KALKULASI OMZET ---
-    
     weekly_summary_tab1['Pertumbuhan Omzet (WoW)'] = weekly_summary_tab1['Omzet'].pct_change().apply(format_wow_growth)
     weekly_summary_tab1['Omzet'] = weekly_summary_tab1['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
-    st.dataframe(weekly_summary_tab1[['Minggu', 'Omzet', 'Penjualan_Unit', 'Pertumbuhan Omzet (WoW)']].style.apply(lambda s: s.map(style_wow_growth), subset=['Pertumbuhan Omzet (WoW)']), use_container_width=True, hide_index=True)
+    st.dataframe(
+        weekly_summary_tab1[['Minggu', 'Omzet', 'Penjualan_Unit', 'Pertumbuhan Omzet (WoW)']]
+            .style.apply(lambda s: s.map(style_wow_growth), subset=['Pertumbuhan Omzet (WoW)']),
+        use_container_width=True, hide_index=True
+    )
 
 with tab2:
     st.header(f"Perbandingan Produk '{my_store_name}' dengan Kompetitor")
@@ -441,4 +431,5 @@ with tab6:
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)].copy()
                         new_products_df['Harga_fmt'] = new_products_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
                         st.dataframe(new_products_df[['Nama Produk', 'Harga_fmt', 'Stok', 'Brand']].rename(columns={'Harga_fmt':'Harga'}), use_container_width=True, hide_index=True)
+
 
