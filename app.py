@@ -75,7 +75,7 @@ def tarik_data_dari_gsheet(spreadsheet_id, sheet_names):
             }, inplace=True)
             # --- AKHIR PERBAIKAN ---
 
-            for col in ['HARGA', 'Terjual/Bulan', 'Omzet', 'Stok']:
+            for col in ['HARGA', 'Terjual/Bulan', 'Omzet', 'STOK']:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False), errors='coerce')
             if 'TANGGAL' in df.columns:
@@ -234,7 +234,7 @@ else:
         # --- AKHIR PERBAIKAN ---
 
     st.title("Hasil Analisis E-commerce")
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📈 Analisis DB KLIK", "⚖️ Perbandingan Produk", "🏢 Analisis Kompetitor", "📦 Tren Stok", "💰 Omzet Toko", "🆕 Produk Baru"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📈 Analisis DB KLIK", "⚖️ Perbandingan Produk", "🏢 Analisis Kompetitor", "📦 Tren STOK", "💰 Omzet Toko", "🆕 Produk Baru"])
 
     with tab1:
         st.header("Analisis Kinerja Toko DB KLIK")
@@ -311,7 +311,7 @@ else:
                 col1.metric("HARGA Terakhir", f"Rp{produk_db_klik_latest['HARGA']:,.0f}")
                 status_db_klik = "READY" if produk_db_klik_latest['NAMA'] in db_klik_ready['NAMA'].values else "HABIS"
                 col2.metric("Status", status_db_klik)
-                col3.metric("Stok", produk_db_klik_latest.get('Stok', 'N/A'))
+                col3.metric("STOK", produk_db_klik_latest.get('STOK', 'N/A'))
 
                 # Line chart HARGA
                 fig_price = px.line(produk_db_klik_hist, x='TANGGAL', y='HARGA', title=f'Perubahan HARGA {selected_product}', markers=True)
@@ -337,7 +337,7 @@ else:
                         
                         competitor_data.append({
                             'Toko': store, 'Produk Kompetitor': match, 'HARGA': matched_latest['HARGA'],
-                            'Status': status_kompetitor, 'Stok': matched_latest.get('Stok', 'N/A'), 'Selisih': selisih
+                            'Status': status_kompetitor, 'STOK': matched_latest.get('STOK', 'N/A'), 'Selisih': selisih
                         })
                         # Tambah ke line chart
                         fig_price.add_scatter(x=matched_hist['TANGGAL'], y=matched_hist['HARGA'], mode='lines+markers', name=store)
@@ -351,7 +351,7 @@ else:
                         elif s < 0: return f"Lebih Murah (Rp{abs(s):,.0f})"
                         return "HARGA Sama"
                     df_competitor['Perbandingan'] = df_competitor['Selisih'].apply(format_selisih)
-                    st.dataframe(df_competitor[['Toko', 'Produk Kompetitor', 'HARGA', 'Status', 'Stok', 'Perbandingan']], use_container_width=True)
+                    st.dataframe(df_competitor[['Toko', 'Produk Kompetitor', 'HARGA', 'Status', 'STOK', 'Perbandingan']], use_container_width=True)
                 else:
                     st.info("Tidak ditemukan produk serupa di toko kompetitor.")
 
@@ -385,7 +385,7 @@ else:
                     col2.plotly_chart(fig_BRAND_pie, use_container_width=True)
 
     with tab4:
-        st.header("📦 Tren Status Stok Mingguan per Toko")
+        st.header("📦 Tren Status STOK Mingguan per Toko")
         stock_data = []
         store_list_stock = sorted([name.replace(" - REKAP - READY", "") for name in processed_data if "READY" in name])
         
@@ -411,10 +411,10 @@ else:
             
             st.dataframe(df_stock_pivot, use_container_width=True)
 
-            fig_stock = px.line(df_stock_pivot, x='Minggu', y=['Ready', 'Habis'], color='Toko', title="Tren Stok Mingguan per Toko", markers=True)
+            fig_stock = px.line(df_stock_pivot, x='Minggu', y=['Ready', 'Habis'], color='Toko', title="Tren STOK Mingguan per Toko", markers=True)
             st.plotly_chart(fig_stock, use_container_width=True)
         else:
-            st.warning("Tidak ada data stok untuk divisualisasikan.")
+            st.warning("Tidak ada data STOK untuk divisualisasikan.")
 
     with tab5:
         st.header("💰 Tabel Omzet Semua Toko per Minggu")
@@ -469,11 +469,12 @@ else:
                     
                     if produk_baru:
                         df_produk_baru = all_products_df[all_products_df['NAMA'].isin(produk_baru)].sort_values('TANGGAL', ascending=False).drop_duplicates('NAMA', keep='first')
-                        st.dataframe(df_produk_baru[['NAMA', 'HARGA', 'Stok', 'BRAND']], use_container_width=True)
+                        st.dataframe(df_produk_baru[['NAMA', 'HARGA', 'STOK', 'BRAND']], use_container_width=True)
                 elif target_week == comparison_week:
                     st.warning("Minggu target dan pembanding tidak boleh sama.")
         else:
             st.warning("Tidak ada data produk yang cukup untuk analisis produk baru.")
+
 
 
 
