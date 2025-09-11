@@ -1,8 +1,8 @@
 # ===================================================================================
-#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI FINAL V6
+#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI SIMPLIFIKASI
 #  Dibuat oleh: Firman & Asisten AI Gemini
 #  Metode Koneksi: Aman & Stabil (gspread + st.secrets individual)
-#  Peningkatan: Simplifikasi Logika Kalkulasi Mingguan Tab 1
+#  Peningkatan: Fitur standardisasi brand via 'kamus_brand' telah dihapus.
 # ===================================================================================
 
 # ===================================================================================
@@ -42,11 +42,11 @@ def load_data_from_gsheets():
     except Exception as e:
         st.error(f"GAGAL KONEKSI KE GOOGLE SHEETS: {e}")
         st.warning("Pastikan 10 baris 'Secrets' sudah benar dan Google Sheet sudah di-share.")
-        return None, None, None
+        return None, None
 
-    rekap_list_df, database_df, kamus_brand_df = [], pd.DataFrame(), pd.DataFrame()
+    rekap_list_df, database_df = [], pd.DataFrame()
     sheet_names = [
-        "DATABASE", "kamus_brand", "DB KLIK - REKAP - READY", "DB KLIK - REKAP - HABIS",
+        "DATABASE", "DB KLIK - REKAP - READY", "DB KLIK - REKAP - HABIS",
         "ABDITAMA - REKAP - READY", "ABDITAMA - REKAP - HABIS",
         "LEVEL99 - REKAP - READY", "LEVEL99 - REKAP - HABIS",
         "JAYA PC - REKAP - READY", "JAYA PC - REKAP - HABIS",
@@ -71,8 +71,6 @@ def load_data_from_gsheets():
             
             if "DATABASE" in sheet_name.upper():
                 database_df = df_sheet
-            elif "KAMUS_BRAND" in sheet_name.upper():
-                kamus_brand_df = df_sheet
             elif "REKAP" in sheet_name.upper():
                 if df_sheet.empty: continue
                 store_name_match = re.match(r"^(.*?) - REKAP", sheet_name, re.IGNORECASE)
@@ -81,16 +79,16 @@ def load_data_from_gsheets():
                 rekap_list_df.append(df_sheet)
 
     except gspread.exceptions.WorksheetNotFound as e:
-        st.error(f"GAGAL: Sheet '{e.args[0]}' tidak ditemukan."); return None, None, None
+        st.error(f"GAGAL: Sheet '{e.args[0]}' tidak ditemukan."); return None, None
     except Exception as e:
-        st.error(f"Gagal memproses sheet: {e}."); return None, None, None
+        st.error(f"Gagal memproses sheet: {e}."); return None, None
 
     if not rekap_list_df:
-        st.error("Tidak ada data REKAP yang dimuat."); return None, None, None
+        st.error("Tidak ada data REKAP yang dimuat."); return None, None
 
     rekap_df = pd.concat(rekap_list_df, ignore_index=True)
     
-    for df in [database_df, kamus_brand_df, rekap_df]:
+    for df in [database_df, rekap_df]:
         if not df.empty:
             df.columns = [str(col).strip().upper() for col in df.columns]
 
@@ -100,27 +98,20 @@ def load_data_from_gsheets():
     if 'Nama Produk' in rekap_df.columns:
         rekap_df['Nama Produk'] = rekap_df['Nama Produk'].astype(str).str.strip()
 
-    if not kamus_brand_df.empty and 'ALIAS' in kamus_brand_df.columns and 'BRAND_UTAMA' in kamus_brand_df.columns:
-        st.success("Kamus brand ditemukan, melakukan standardisasi nama brand.")
-        kamus_brand_df.dropna(subset=['ALIAS', 'BRAND_UTAMA'], inplace=True)
-        alias_map = {str(k).strip().upper(): str(v).strip().upper() for k, v in kamus_brand_df.set_index('ALIAS')['BRAND_UTAMA'].to_dict().items()}
-        
-        def standardize_brand(brand):
-            brand_upper = str(brand).strip().upper()
-            return alias_map.get(brand_upper, brand_upper)
-        
-        rekap_df['Brand'] = rekap_df['Brand'].apply(standardize_brand)
-    else:
-        st.warning("Sheet 'kamus_brand' tidak ditemukan. Menggunakan metode ekstraksi brand dasar.")
-        if 'Brand' not in rekap_df.columns and 'Nama Produk' in rekap_df.columns:
-            rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
+    # --- PERUBAHAN: EKSTRAKSI BRAND SEDERHANA ---
+    # Fitur yang menggunakan 'kamus_brand' dan logika standardisasi kompleks telah dihapus.
+    # Sekarang, brand diekstrak langsung dari kata pertama 'Nama Produk' untuk simplisitas.
+    if 'Nama Produk' in rekap_df.columns:
+        rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
+    elif 'Brand' not in rekap_df.columns:
+        rekap_df['Brand'] = 'Tidak Diketahui'
 
     if 'Stok' not in rekap_df.columns: rekap_df['Stok'] = 'N/A'
 
     required_cols = ['Tanggal', 'Nama Produk', 'Harga', 'Terjual per Bulan']
     if not all(col in rekap_df.columns for col in required_cols):
         st.error(f"Kolom krusial hilang. Pastikan semua sheet REKAP memiliki: {required_cols}")
-        return None, None, None
+        return None, None
 
     rekap_df['Tanggal'] = pd.to_datetime(rekap_df['Tanggal'], errors='coerce', dayfirst=True)
     rekap_df['Harga'] = pd.to_numeric(rekap_df['Harga'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce')
@@ -132,7 +123,7 @@ def load_data_from_gsheets():
     rekap_df['Omzet'] = rekap_df['Harga'] * rekap_df['Terjual per Bulan']
     rekap_df.drop_duplicates(subset=['Nama Produk', 'Toko', 'Tanggal'], inplace=True, keep='last')
 
-    return rekap_df.sort_values('Tanggal'), database_df, kamus_brand_df
+    return rekap_df.sort_values('Tanggal'), database_df
 
 @st.cache_data(show_spinner=False)
 def get_smart_matches(query_name, competitor_product_list, score_cutoff=90):
@@ -169,11 +160,10 @@ if not st.session_state.data_loaded:
     _, col_center, _ = st.columns([2, 3, 2])
     with col_center:
         if st.button("Tarik Data & Mulai Analisis 🚀", key="load_data_main_button", type="primary"):
-            df, db_df, kamus_df = load_data_from_gsheets()
+            df, db_df = load_data_from_gsheets()
             if df is not None and not df.empty:
                 st.session_state.df = df
                 st.session_state.db_df = db_df
-                st.session_state.kamus_df = kamus_df
                 st.session_state.data_loaded = True
                 st.rerun()
             else:
@@ -213,10 +203,7 @@ main_store_df = df_filtered[df_filtered['Toko'] == my_store_name].copy()
 competitor_df = df_filtered[df_filtered['Toko'] != my_store_name].copy()
 
 # --- [LOGIKA INTI UNTUK PERHITUNGAN AKURAT] ---
-# 1. latest_entries_weekly: Data terakhir per produk PER MINGGU (untuk analisis tren mingguan).
 latest_entries_weekly = df_filtered.loc[df_filtered.groupby(['Minggu', 'Toko', 'Nama Produk'])['Tanggal'].idxmax()]
-
-# 2. latest_entries_overall: Data terakhir per produk dalam SELURUH rentang tanggal (untuk agregat total seperti pie chart).
 latest_entries_overall = df_filtered.loc[df_filtered.groupby(['Toko', 'Nama Produk'])['Tanggal'].idxmax()]
 main_store_latest_overall = latest_entries_overall[latest_entries_overall['Toko'] == my_store_name]
 competitor_latest_overall = latest_entries_overall[latest_entries_overall['Toko'] != my_store_name]
@@ -297,22 +284,14 @@ with tab1:
 
     st.subheader(f"{section_counter}. Ringkasan Kinerja Mingguan (WoW Growth)")
     section_counter += 1
-    # --- [PERUBAHAN SESUAI PERMINTAAN] ---
-    # Logika ini sekarang mengambil data mentah KHUSUS DB KLIK (`main_store_df`),
-    # lalu menyaringnya untuk mendapatkan snapshot terakhir per produk per minggu.
-    # Ini untuk memastikan tidak ada penghitungan ganda dan hasilnya akurat.
     
-    # 1. Ambil data snapshot terakhir per produk per minggu dari data mentah DB KLIK.
-    # `idxmax()` menemukan indeks dari tanggal (Tanggal) maksimum untuk setiap grup.
     main_store_latest_weekly = main_store_df.loc[main_store_df.groupby(['Minggu', 'Nama Produk'])['Tanggal'].idxmax()]
     
-    # 2. Agregasi (jumlahkan) omzet dan unit terjual dari data yang sudah disaring tersebut.
     weekly_summary_tab1 = main_store_latest_weekly.groupby('Minggu').agg(
         Omzet=('Omzet', 'sum'),
         Penjualan_Unit=('Terjual per Bulan', 'sum')
     ).reset_index()
     
-    # Urutkan berdasarkan minggu untuk perhitungan pertumbuhan yang benar.
     weekly_summary_tab1.sort_values('Minggu', inplace=True) 
     
     weekly_summary_tab1['Pertumbuhan Omzet (WoW)'] = weekly_summary_tab1['Omzet'].pct_change().apply(format_wow_growth)
@@ -468,3 +447,4 @@ with tab6:
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)].copy()
                         new_products_df['Harga_fmt'] = new_products_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
                         st.dataframe(new_products_df[['Nama Produk', 'Harga_fmt', 'Stok', 'Brand']].rename(columns={'Harga_fmt':'Harga'}), use_container_width=True, hide_index=True)
+
