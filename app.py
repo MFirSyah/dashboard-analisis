@@ -55,7 +55,7 @@ def load_data_from_gsheets():
         "SURYA MITRA ONLINE - REKAP - READY", "SURYA MITRA ONLINE - REKAP - HABIS",
         "GG STORE - REKAP - READY", "GG STORE - REKAP - HABIS",
         "TECH ISLAND - REKAP - READY", "TECH ISLAND - REKAP - HABIS",
-        "LOGITECH - READY", "LOGITECH - HABIS"
+        "LOGITECH - REKAP - READY", "LOGITECH - REKAP - HABIS"
     ]
     try:
         for sheet_name in sheet_names:
@@ -448,5 +448,6 @@ with tab6:
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)].copy()
                         new_products_df['Harga_fmt'] = new_products_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
                         st.dataframe(new_products_df[['Nama Produk', 'Harga_fmt', 'Stok', 'Brand']].rename(columns={'Harga_fmt':'Harga'}), use_container_width=True, hide_index=True)
+
 
 
