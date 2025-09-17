@@ -88,7 +88,7 @@ def load_data_from_gsheets():
         "ABDITAMA - REKAP - READY", "ABDITAMA - REKAP - HABIS", "LEVEL99 - REKAP - READY", "LEVEL99 - REKAP - HABIS",
         "IT SHOP - REKAP - READY", "IT SHOP - REKAP - HABIS", "JAYA PC - REKAP - READY", "JAYA PC - REKAP - HABIS",
         "MULTIFUNGSI - REKAP - READY", "MULTIFUNGSI - REKAP - HABIS", "TECH ISLAND - REKAP - READY", "TECH ISLAND - REKAP - HABIS",
-        "GG STORE - REKAP - READY", "GG STORE - REKAP - HABIS", "SURYA MITRA ONLINE - REKAP - RE", "SURYA MITRA ONLINE - REKAP - HA"
+        "GG STORE - REKAP - READY", "GG STORE - REKAP - HABIS", "SURYA MITRA ONLINE - REKAP - READY", "SURYA MITRA ONLINE - REKAP - HABIS"
     ]
     
     all_data = []
@@ -331,4 +331,5 @@ else:
 
     else:
         st.warning("Data tidak cukup untuk perbandingan mingguan. Silakan tunggu hingga ada data untuk minimal 2 minggu.")
+
 
