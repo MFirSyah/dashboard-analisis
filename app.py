@@ -331,17 +331,4 @@ else:
 
     else:
         st.warning("Data tidak cukup untuk perbandingan mingguan. Silakan tunggu hingga ada data untuk minimal 2 minggu.")
-```
-
-### **Instruksi Selanjutnya untuk Anda**
-
-Setelah mengganti kode di Canvas dengan yang di atas, Anda hanya perlu melakukan **satu hal lagi** di pengaturan Streamlit Cloud:
-
-1.  Buka aplikasi Anda di `share.streamlit.io`.
-2.  Masuk ke **Settings > Secrets**.
-3.  Tambahkan baris berikut di akhir, ganti dengan URL spreadsheet Anda yang sebenarnya:
-
-    ```toml
-    gcp_spreadsheet_url = "https://docs.google.com/spreadsheets/d/ID_SPREADSHEET_ANDA/edit#gid=0"
-    
 
