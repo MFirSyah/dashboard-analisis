@@ -227,7 +227,7 @@ else:
 
     # Sidebar Filters
     st.sidebar.header("Filter Global")
-    selected_brands = st.sidebar.multoselect("Pilih Brand", all_brands, default=None)
+    selected_brands = st.sidebar.multiselect("Pilih Brand", all_brands, default=None)
     
     df_filtered = df_gabungan.copy()
     if selected_brands:
@@ -358,4 +358,5 @@ else:
 
     else:
         st.warning("Data tidak cukup untuk perbandingan mingguan. Silakan tunggu hingga ada data untuk minimal 2 minggu.")
+
 
