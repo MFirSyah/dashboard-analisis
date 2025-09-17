@@ -7,6 +7,7 @@
 #  - Mengembalikan struktur 6 Tab fungsional.
 #  - Penanganan error secrets yang lebih baik.
 #  - PERBAIKAN: Kode lebih kuat dalam menangani kolom kosong di Google Sheets.
+#  - PERBAIKAN: Mengatasi ValueError saat kalkulasi fuzzy.
 # ===================================================================================
 
 # ===================================================================================
@@ -99,7 +100,6 @@ def load_data_from_gsheets():
     for sheet_name in sheet_names:
         try:
             worksheet = sh.worksheet(sheet_name)
-            # PERBAIKAN: Gunakan get_all_values() untuk menghindari error header duplikat
             all_values = worksheet.get_all_values()
             
             if not all_values:
@@ -109,7 +109,6 @@ def load_data_from_gsheets():
             header = all_values[0]
             data = all_values[1:]
 
-            # Logika untuk membersihkan header yang kosong/duplikat
             last_valid_col_index = -1
             for i, col_name in enumerate(header):
                 if col_name.strip():
@@ -144,22 +143,19 @@ def load_data_from_gsheets():
     df_gabungan = pd.concat(all_data, ignore_index=True)
     df_gabungan.rename(columns={'NAMA': 'Nama Produk', 'HARGA': 'Harga', 'TERJUAL/BLN': 'Terjual/Bln', 'BRAND': 'Brand'}, inplace=True)
     
-    # Pemrosesan data
     df_gabungan['Harga'] = pd.to_numeric(df_gabungan['Harga'], errors='coerce').fillna(0).astype(int)
     df_gabungan['Terjual/Bln'] = pd.to_numeric(df_gabungan['Terjual/Bln'], errors='coerce').fillna(0).astype(int)
-    # Periksa keberadaan kolom TANGGAL sebelum memprosesnya
     if 'TANGGAL' in df_gabungan.columns:
         df_gabungan['TANGGAL'] = pd.to_datetime(df_gabungan['TANGGAL'], errors='coerce')
         df_gabungan.dropna(subset=['Nama Produk', 'TANGGAL'], inplace=True)
         df_gabungan['Minggu'] = df_gabungan['TANGGAL'].dt.strftime('%Y-%U')
     else:
         st.warning("Kolom 'TANGGAL' tidak ditemukan di beberapa sheet. Analisis mingguan mungkin tidak akurat.")
-        df_gabungan['Minggu'] = pd.to_datetime('today').strftime('%Y-%U') # Fallback
+        df_gabungan['Minggu'] = pd.to_datetime('today').strftime('%Y-%U')
 
     df_gabungan = df_gabungan[df_gabungan['Nama Produk'] != '']
     all_brands = sorted(df_gabungan['Brand'].dropna().unique().tolist())
 
-    # Load pre-calculated fuzzy data
     try:
         fuzzy_sheet = sh.worksheet("hasil_fuzzy")
         fuzzy_records = fuzzy_sheet.get_all_records()
@@ -192,9 +188,12 @@ def calculate_and_update_fuzzy_data(df_main):
         progress_percentage = (i + 1) / total_products
         progress_bar.progress(progress_percentage, text=f"Memproses produk {i+1}/{total_products}: {product[:40]}...")
 
-        matches = process.extractBests(product, products[i+1:], scorer=fuzz.token_sort_ratio, score_cutoff=75, limit=None)
+        # PERBAIKAN: Menggunakan process.extract yang lebih stabil, mengembalikan 2 nilai (string, skor)
+        # untuk menghindari ValueError: not enough values to unpack.
+        matches = process.extract(product, products[i+1:], scorer=fuzz.token_sort_ratio, score_cutoff=75)
         if matches:
-            for match, score, _ in matches:
+            # Loop diubah untuk unpack 2 nilai (match, score)
+            for match, score in matches:
                 all_matches.append({'Produk_Utama': product, 'Produk_Serupa': match, 'Skor': score})
 
     progress_bar.progress(1.0, text="Kalkulasi selesai. Menyimpan ke Google Sheets...")
@@ -225,7 +224,6 @@ if df_gabungan.empty:
 else:
     st.title("📊 Dashboard Analisis Penjualan & Kompetitor Lengkap")
 
-    # Sidebar Filters
     st.sidebar.header("Filter Global")
     selected_brands = st.sidebar.multiselect("Pilih Brand", all_brands, default=None)
     
@@ -233,7 +231,6 @@ else:
     if selected_brands:
         df_filtered = df_filtered[df_filtered['Brand'].isin(selected_brands)]
 
-    # Mendefinisikan 6 Tab
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📈 Ringkasan Umum",
         "🔍 Analisis Fuzzy Similarity",
@@ -301,7 +298,6 @@ else:
         top_products = df_filtered.sort_values(by='Terjual/Bln', ascending=False).head(top_n)
         st.dataframe(top_products[['Nama Produk', 'Brand', 'Toko', 'Harga', 'Terjual/Bln']].style.format({'Harga': 'Rp {:,.0f}'}), use_container_width=True)
 
-    # Logika untuk Tab 4, 5, dan 6
     if 'Minggu' in df_filtered.columns and df_filtered['Minggu'].nunique() > 1:
         weeks = sorted(df_filtered['Minggu'].unique(), reverse=True)
         col_minggu1, col_minggu2 = st.columns(2)
@@ -358,5 +354,4 @@ else:
 
     else:
         st.warning("Data tidak cukup untuk perbandingan mingguan. Silakan tunggu hingga ada data untuk minimal 2 minggu.")
-
 
