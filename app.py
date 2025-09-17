@@ -79,6 +79,11 @@ def load_data_from_gsheets():
         
         df_combined['Harga'] = pd.to_numeric(df_combined['Harga'], errors='coerce').fillna(0).astype(int)
         df_combined['Terjual per Bulan'] = pd.to_numeric(df_combined['Terjual per Bulan'], errors='coerce').fillna(0).astype(int)
+        
+        # PERBAIKAN: Menangani nilai kosong di kolom BRAND yang menyebabkan TypeError
+        df_combined['BRAND'].fillna('TIDAK DIKETAHUI', inplace=True)
+        df_combined['BRAND'] = df_combined['BRAND'].astype(str) # Memastikan tipe data konsisten
+
         df_combined = df_combined[df_combined['Nama Produk'] != '']
         df_combined['Tanggal'] = pd.to_datetime(df_combined['Tanggal'], errors='coerce')
         df_combined.dropna(subset=['Tanggal'], inplace=True) # Hapus baris dengan tanggal tidak valid
