@@ -32,8 +32,9 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 def get_gspread_client():
     """Menginisialisasi dan mengembalikan klien gspread dengan penanganan secrets yang aman."""
     # PERBAIKAN: Memeriksa keberadaan semua kunci secrets sebelum digunakan
+    # Diubah gcp_private_key menjadi gcp_private_key_raw agar cocok dengan TOML
     required_secrets = [
-        "gcp_type", "gcp_project_id", "gcp_private_key_id", "gcp_private_key",
+        "gcp_type", "gcp_project_id", "gcp_private_key_id", "gcp_private_key_raw",
         "gcp_client_email", "gcp_client_id", "gcp_auth_uri", "gcp_token_uri",
         "gcp_auth_provider_x509_cert_url", "gcp_client_x509_cert_url", "gcp_spreadsheet_url"
     ]
@@ -49,7 +50,8 @@ def get_gspread_client():
             "type": st.secrets["gcp_type"],
             "project_id": st.secrets["gcp_project_id"],
             "private_key_id": st.secrets["gcp_private_key_id"],
-            "private_key": st.secrets["gcp_private_key"], # Tidak perlu .replace() jika format TOML benar
+            # PERBAIKAN: Menggunakan gcp_private_key_raw agar cocok dengan nama di TOML Anda
+            "private_key": st.secrets["gcp_private_key_raw"], 
             "client_email": st.secrets["gcp_client_email"],
             "client_id": st.secrets["gcp_client_id"],
             "auth_uri": st.secrets["gcp_auth_uri"],
@@ -329,4 +331,17 @@ else:
 
     else:
         st.warning("Data tidak cukup untuk perbandingan mingguan. Silakan tunggu hingga ada data untuk minimal 2 minggu.")
+```
+
+### **Instruksi Selanjutnya untuk Anda**
+
+Setelah mengganti kode di Canvas dengan yang di atas, Anda hanya perlu melakukan **satu hal lagi** di pengaturan Streamlit Cloud:
+
+1.  Buka aplikasi Anda di `share.streamlit.io`.
+2.  Masuk ke **Settings > Secrets**.
+3.  Tambahkan baris berikut di akhir, ganti dengan URL spreadsheet Anda yang sebenarnya:
+
+    ```toml
+    gcp_spreadsheet_url = "https://docs.google.com/spreadsheets/d/ID_SPREADSHEET_ANDA/edit#gid=0"
+    
 
