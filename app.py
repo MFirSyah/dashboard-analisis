@@ -5,6 +5,7 @@
 #  - Menggunakan pre-calculated fuzzy matching untuk mempercepat tab analisis.
 #  - Data fuzzy similarity disimpan di sheet 'hasil_fuzzy' dan di-trigger oleh tombol.
 #  - Mengembalikan struktur 6 Tab fungsional.
+#  - Penanganan error secrets yang lebih baik.
 # ===================================================================================
 
 # ===================================================================================
@@ -29,30 +30,55 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 # ===================================================================================
 
 def get_gspread_client():
-    """Menginisialisasi dan mengembalikan klien gspread."""
-    creds_dict = {
-        "type": st.secrets["gcp_type"], "project_id": st.secrets["gcp_project_id"],
-        "private_key_id": st.secrets["gcp_private_key_id"], "private_key": st.secrets["gcp_private_key"].replace('\\n', '\n'),
-        "client_email": st.secrets["gcp_client_email"], "client_id": st.secrets["gcp_client_id"],
-        "auth_uri": st.secrets["gcp_auth_uri"], "token_uri": st.secrets["gcp_token_uri"],
-        "auth_provider_x509_cert_url": st.secrets["gcp_auth_provider_x509_cert_url"],
-        "client_x509_cert_url": st.secrets["gcp_client_x509_cert_url"]
-    }
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    return gspread.authorize(creds)
+    """Menginisialisasi dan mengembalikan klien gspread dengan penanganan secrets yang aman."""
+    # PERBAIKAN: Memeriksa keberadaan semua kunci secrets sebelum digunakan
+    required_secrets = [
+        "gcp_type", "gcp_project_id", "gcp_private_key_id", "gcp_private_key",
+        "gcp_client_email", "gcp_client_id", "gcp_auth_uri", "gcp_token_uri",
+        "gcp_auth_provider_x509_cert_url", "gcp_client_x509_cert_url", "gcp_spreadsheet_url"
+    ]
+    
+    missing_secrets = [secret for secret in required_secrets if not st.secrets.has_key(secret)]
+    
+    if missing_secrets:
+        st.error(f"Beberapa kunci secrets tidak ditemukan: {', '.join(missing_secrets)}. Harap periksa pengaturan secrets di Streamlit Cloud Anda.")
+        return None
+
+    try:
+        creds_dict = {
+            "type": st.secrets["gcp_type"],
+            "project_id": st.secrets["gcp_project_id"],
+            "private_key_id": st.secrets["gcp_private_key_id"],
+            "private_key": st.secrets["gcp_private_key"], # Tidak perlu .replace() jika format TOML benar
+            "client_email": st.secrets["gcp_client_email"],
+            "client_id": st.secrets["gcp_client_id"],
+            "auth_uri": st.secrets["gcp_auth_uri"],
+            "token_uri": st.secrets["gcp_token_uri"],
+            "auth_provider_x509_cert_url": st.secrets["gcp_auth_provider_x509_cert_url"],
+            "client_x509_cert_url": st.secrets["gcp_client_x509_cert_url"]
+        }
+        scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        return gspread.authorize(creds)
+    except Exception as e:
+        st.error(f"Gagal mengotorisasi dengan Google. Cek kembali format kredensial Anda. Error: {e}")
+        return None
+
 
 @st.cache_data(ttl=600, show_spinner="Mengambil data terbaru dari Google Sheets...")
 def load_data_from_gsheets():
     """
     Fungsi untuk memuat dan memproses semua data dari Google Sheets.
     """
+    gc = get_gspread_client()
+    if gc is None:
+        return pd.DataFrame(), pd.DataFrame(), [] # Return empty dataframes if connection fails
+
     try:
-        gc = get_gspread_client()
         spreadsheet_url = st.secrets["gcp_spreadsheet_url"]
         sh = gc.open_by_url(spreadsheet_url)
     except Exception as e:
-        st.error(f"Gagal terhubung ke Google Sheets. Cek konfigurasi `st.secrets`. Error: {e}")
+        st.error(f"Gagal membuka spreadsheet. Cek kembali URL di secrets Anda. Error: {e}")
         return pd.DataFrame(), pd.DataFrame(), []
 
     sheet_names = [
@@ -303,3 +329,4 @@ else:
 
     else:
         st.warning("Data tidak cukup untuk perbandingan mingguan. Silakan tunggu hingga ada data untuk minimal 2 minggu.")
+
