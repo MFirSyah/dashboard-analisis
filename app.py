@@ -1,305 +1,324 @@
-# ===================================================================================
-#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI STRUKTUR ASLI + CACHING
-#  Dibuat oleh: Firman & Asisten AI Gemini
-#  Deskripsi: Kode ini mempertahankan struktur asli sambil mengimplementasikan 
-#             caching fuzzy similarity untuk mempercepat performa Tab 2.
-# ===================================================================================
-
-# ===================================================================================
-# IMPORT LIBRARY
-# ===================================================================================
 import streamlit as st
 import pandas as pd
-from thefuzz import process
+from thefuzz import process, fuzz
 import plotly.express as px
 import re
 import gspread
-from google.oauth2.service_account import Credentials
+
+st.set_page_config(layout="wide", page_title="Dashboard Analisis")
 
 # ===================================================================================
-# KONFIGURASI HALAMAN
+# FUNGSI UTAMA LOAD DATA
 # ===================================================================================
-st.set_page_config(layout="wide", page_title="Dashboard Analisis Penjualan")
-
-# ===================================================================================
-# FUNGSI KONEKSI DAN PEMUATAN DATA (STRUKTUR ASLI)
-# ===================================================================================
-
-# Fungsi untuk otentikasi dan koneksi ke Google Sheets
-def get_gspread_client():
-    creds_dict = {
-        "type": st.secrets["gcp_type"], "project_id": st.secrets["gcp_project_id"],
-        "private_key_id": st.secrets["gcp_private_key_id"], "private_key": st.secrets["gcp_private_key"],
-        "client_email": st.secrets["gcp_client_email"], "client_id": st.secrets["gcp_client_id"],
-        "auth_uri": st.secrets["gcp_auth_uri"], "token_uri": st.secrets["gcp_token_uri"],
-        "auth_provider_x509_cert_url": st.secrets["gcp_auth_provider_x509_cert_url"],
-        "client_x509_cert_url": st.secrets["gcp_client_x509_cert_url"],
-    }
-    scopes = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    return gspread.authorize(creds)
-
-# Fungsi-fungsi pemuatan data per toko (dipertahankan sesuai permintaan)
-@st.cache_data(show_spinner=False)
-def load_data_per_sheet(_gs_client, sheet_name, store_name):
+@st.cache_data(show_spinner="Mengambil data terbaru dari Google Sheets...")
+def load_data_from_gsheets():
     try:
-        spreadsheet = _gs_client.open_by_key(st.secrets["gcp_spreadsheet_key"])
-        worksheet = spreadsheet.worksheet(sheet_name)
-        df = pd.DataFrame(worksheet.get_all_records())
-        df['Toko'] = store_name
-        return df
+        creds_dict = {
+            "type": st.secrets["gcp_type"], "project_id": st.secrets["gcp_project_id"],
+            "private_key_id": st.secrets["gcp_private_key_id"], "private_key": st.secrets["gcp_private_key_raw"].replace('\\n', '\n'),
+            "client_email": st.secrets["gcp_client_email"], "client_id": st.secrets["gcp_client_id"],
+            "auth_uri": st.secrets["gcp_auth_uri"], "token_uri": st.secrets["gcp_token_uri"],
+            "auth_provider_x509_cert_url": st.secrets["gcp_auth_provider_x509_cert_url"],
+            "client_x509_cert_url": st.secrets["gcp_client_x509_cert_url"]
+        }
+        gc = gspread.service_account_from_dict(creds_dict)
+        spreadsheet = gc.open_by_key("1hl7YPEPg4aaEheN5fBKk65YX3-KdkQBRHCJWhVr9kVQ")
     except Exception as e:
-        st.error(f"Gagal memuat sheet '{sheet_name}': {e}")
-        return pd.DataFrame()
+        st.error(f"GAGAL KONEKSI KE GOOGLE SHEETS: {e}")
+        return None, None, None
 
-# Fungsi untuk memuat data kamus dan database brand
-@st.cache_data(show_spinner=False)
-def load_kamus_brand(_gs_client):
+    rekap_list_df, database_df = [], pd.DataFrame()
+    sheet_names = [
+        "DATABASE", "DB KLIK - REKAP - READY", "DB KLIK - REKAP - HABIS",
+        "ABDITAMA - REKAP - READY", "ABDITAMA - REKAP - HABIS",
+        "LEVEL99 - REKAP - READY", "LEVEL99 - REKAP - HABIS",
+        "JAYA PC - REKAP - READY", "JAYA PC - REKAP - HABIS",
+        "MULTIFUNGSI - REKAP - READY", "MULTIFUNGSI - REKAP - HABIS",
+        "IT SHOP - REKAP - READY", "IT SHOP - REKAP - HABIS",
+        "SURYA MITRA ONLINE - REKAP - READY", "SURYA MITRA ONLINE - REKAP - HABIS",
+        "GG STORE - REKAP - READY", "GG STORE - REKAP - HABIS",
+        "TECH ISLAND - REKAP - READY", "TECH ISLAND - REKAP - HABIS",
+        "LOGITECH - REKAP - READY", "LOGITECH - REKAP - HABIS"
+    ]
     try:
-        spreadsheet = _gs_client.open_by_key(st.secrets["gcp_spreadsheet_key"])
-        kamus_ws = spreadsheet.worksheet("kamus_brand")
-        db_brand_ws = spreadsheet.worksheet("DATABASE_BRAND")
-        df_kamus = pd.DataFrame(kamus_ws.get_all_records())
-        df_db_brand = pd.DataFrame(db_brand_ws.get_all_records())
-        return df_kamus, df_db_brand
-    except Exception as e:
-        st.error(f"Gagal memuat kamus brand: {e}")
-        return pd.DataFrame(), pd.DataFrame()
+        for sheet_name in sheet_names:
+            sheet = spreadsheet.worksheet(sheet_name)
+            all_values = sheet.get_all_values()
+            if not all_values or len(all_values) < 2:
+                continue
+            header = all_values[0]
+            data = all_values[1:]
+            df_sheet = pd.DataFrame(data, columns=header)
+            if '' in df_sheet.columns:
+                df_sheet = df_sheet.drop(columns=[''])
 
-# --- FUNGSI BARU UNTUK FUZZY CACHING ---
-@st.cache_data(show_spinner="Memuat data kemiripan produk...")
-def load_fuzzy_data(_spreadsheet):
-    """
-    Fungsi cepat untuk memuat hasil kalkulasi fuzzy dari worksheet 'hasil_fuzzy'.
-    """
+            if "DATABASE" in sheet_name.upper():
+                database_df = df_sheet
+            elif "REKAP" in sheet_name.upper():
+                if df_sheet.empty: continue
+                store_name_match = re.match(r"^(.*?) - REKAP", sheet_name, re.IGNORECASE)
+                df_sheet['Toko'] = store_name_match.group(1).strip() if store_name_match else "Toko Tak Dikenal"
+                df_sheet['Status'] = 'Tersedia' if "READY" in sheet_name.upper() else 'Habis'
+                rekap_list_df.append(df_sheet)
+    except Exception as e:
+        st.error(f"Gagal memproses sheet: {e}.")
+        return None, None, None
+
+    if not rekap_list_df:
+        return None, None, None
+
+    rekap_df = pd.concat(rekap_list_df, ignore_index=True)
+    for df in [database_df, rekap_df]:
+        if not df.empty:
+            df.columns = [str(col).strip().upper() for col in df.columns]
+
+    rename_map = {'NAMA': 'Nama Produk','TERJUAL/BLN': 'Terjual per Bulan','TANGGAL': 'Tanggal','HARGA': 'Harga','BRAND': 'Brand','STOK': 'Stok','TOKO': 'Toko','STATUS': 'Status'}
+    rekap_df.rename(columns=rename_map, inplace=True)
+    if 'Nama Produk' in rekap_df.columns:
+        rekap_df['Nama Produk'] = rekap_df['Nama Produk'].astype(str).str.strip()
+    if 'Nama Produk' in rekap_df.columns:
+        rekap_df['Brand'] = rekap_df['Nama Produk'].str.split(n=1).str[0].str.upper()
+    if 'Stok' not in rekap_df.columns: rekap_df['Stok'] = 'N/A'
+
+    rekap_df['Tanggal'] = pd.to_datetime(rekap_df['Tanggal'], errors='coerce', dayfirst=True)
+    rekap_df['Harga'] = pd.to_numeric(rekap_df['Harga'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce')
+    rekap_df['Terjual per Bulan'] = pd.to_numeric(rekap_df['Terjual per Bulan'], errors='coerce').fillna(0)
+    rekap_df.dropna(subset=['Tanggal', 'Nama Produk', 'Harga'], inplace=True)
+
+    rekap_df['Harga'] = rekap_df['Harga'].astype(int)
+    rekap_df['Terjual per Bulan'] = rekap_df['Terjual per Bulan'].astype(int)
+    rekap_df['Omzet'] = rekap_df['Harga'] * rekap_df['Terjual per Bulan']
+    rekap_df.drop_duplicates(subset=['Nama Produk', 'Toko', 'Tanggal'], inplace=True, keep='last')
+
+    return rekap_df.sort_values('Tanggal'), database_df, spreadsheet
+
+# ===================================================================================
+# FUNGSI FUZZY UPDATE DAN LOAD HASIL
+# ===================================================================================
+def update_fuzzy_sheet(df, spreadsheet, sheet_name="hasil_fuzzy", score_cutoff=90):
     try:
-        worksheet = _spreadsheet.worksheet("hasil_fuzzy")
-        df_fuzzy = pd.DataFrame(worksheet.get_all_records())
-        df_fuzzy['Skor_Kemiripan'] = pd.to_numeric(df_fuzzy['Skor_Kemiripan'])
-        return df_fuzzy
-    except gspread.WorksheetNotFound:
-        st.warning("Worksheet 'hasil_fuzzy' tidak ditemukan. Silakan buat cache terlebih dahulu melalui Opsi Admin di sidebar.")
-        return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Gagal memuat data fuzzy: {e}")
-        return pd.DataFrame()
-
-def update_fuzzy_cache(_spreadsheet, _df_master):
-    """
-    Fungsi 'berat' untuk menghitung ulang semua skor kemiripan dan menyimpannya ke worksheet.
-    """
-    if _df_master.empty:
-        st.error("Data master kosong, tidak dapat memperbarui cache.")
-        return
-
-    with st.spinner("Memperbarui cache fuzzy similarity... Ini mungkin memakan waktu beberapa menit."):
         try:
-            unique_products = _df_master['Nama Produk'].dropna().unique()
-            fuzzy_results = []
-            progress_bar = st.progress(0)
-            total_products = len(unique_products)
+            sheet = spreadsheet.worksheet(sheet_name)
+            sheet.clear()
+        except gspread.exceptions.WorksheetNotFound:
+            sheet = spreadsheet.add_worksheet(title=sheet_name, rows="1000", cols="10")
 
-            for i, product in enumerate(unique_products):
-                similar_products = process.extract(product, unique_products, limit=6)
-                for similar, score in similar_products:
-                    if product != similar:
-                        fuzzy_results.append({
-                            'Produk_Asal': product,
-                            'Produk_Serupa': similar,
-                            'Skor_Kemiripan': score
-                        })
-                progress_bar.progress((i + 1) / total_products)
+        main_store_latest = df[df['Toko'] == "DB KLIK"]
+        competitor_latest = df[df['Toko'] != "DB KLIK"]
+        latest_date = df['Tanggal'].max()
+        main_store_latest = main_store_latest[main_store_latest['Tanggal'] == latest_date]
+        competitor_latest = competitor_latest[competitor_latest['Tanggal'] == latest_date]
 
-            fuzzy_df = pd.DataFrame(fuzzy_results)
-            
-            try:
-                worksheet_to_delete = _spreadsheet.worksheet('hasil_fuzzy')
-                _spreadsheet.del_worksheet(worksheet_to_delete)
-            except gspread.WorksheetNotFound:
-                pass
-            
-            worksheet = _spreadsheet.add_worksheet(title='hasil_fuzzy', rows="1", cols="1")
-            worksheet.update([fuzzy_df.columns.values.tolist()] + fuzzy_df.values.tolist())
-            
-            st.success("Cache fuzzy similarity berhasil diperbarui!")
-            st.info("Harap muat ulang halaman (refresh) untuk menggunakan data cache yang baru.")
+        results = []
+        for _, row in main_store_latest.iterrows():
+            product_name = row['Nama Produk']
+            matches = process.extract(product_name, competitor_latest['Nama Produk'].tolist(), limit=5, scorer=fuzz.token_set_ratio)
+            for match_name, score in matches:
+                if score >= score_cutoff:
+                    comp_row = competitor_latest[competitor_latest['Nama Produk'] == match_name].iloc[0]
+                    results.append([
+                        row['Nama Produk'], row['Harga'], row['Status'], row['Stok'],
+                        comp_row['Toko'], comp_row['Nama Produk'], comp_row['Harga'], comp_row['Status'], comp_row['Stok'],
+                        score
+                    ])
 
-        except Exception as e:
-            st.error(f"Terjadi kesalahan saat memperbarui cache: {e}")
+        header = ["Produk DB KLIK","Harga DBK","Status DBK","Stok DBK","Toko Kompetitor","Produk Kompetitor","Harga Kompetitor","Status Kompetitor","Stok Kompetitor","Skor Similarity"]
+        sheet.update([header] + results)
+        st.success(f"✅ Sheet '{sheet_name}' berhasil diperbarui dengan {len(results)} baris.")
+    except Exception as e:
+        st.error(f"Gagal update sheet fuzzy: {e}")
+
+@st.cache_data(show_spinner=False)
+def load_fuzzy_results(spreadsheet, sheet_name="hasil_fuzzy"):
+    try:
+        sheet = spreadsheet.worksheet(sheet_name)
+        data = sheet.get_all_records()
+        return pd.DataFrame(data)
+    except gspread.exceptions.WorksheetNotFound:
+        return pd.DataFrame()
 
 # ===================================================================================
-# PROSES UTAMA
+# MAIN APP
 # ===================================================================================
 st.title("📊 Dashboard Analisis Penjualan & Kompetitor")
 
-# Inisialisasi koneksi
-gs_client = get_gspread_client()
-spreadsheet_main = gs_client.open_by_key(st.secrets["gcp_spreadsheet_key"])
+if 'data_loaded' not in st.session_state:
+    st.session_state.data_loaded = False
 
-# Memuat semua data dengan struktur asli
-with st.spinner("Memuat semua data dari Google Sheets..."):
-    # Daftar semua sheet rekap
-    sheet_configs = [
-        {"sheet_name": "SURYA MITRA ONLINE - REKAP - RE", "store_name": "SURYA MITRA ONLINE"},
-        {"sheet_name": "SURYA MITRA ONLINE - REKAP - HA", "store_name": "SURYA MITRA ONLINE"},
-        {"sheet_name": "GG STORE - REKAP - READY", "store_name": "GG STORE"},
-        {"sheet_name": "GG STORE - REKAP - HABIS", "store_name": "GG STORE"},
-        {"sheet_name": "TECH ISLAND - REKAP - READY", "store_name": "TECH ISLAND"},
-        {"sheet_name": "TECH ISLAND - REKAP - HABIS", "store_name": "TECH ISLAND"},
-        {"sheet_name": "MULTIFUNGSI - REKAP - READY", "store_name": "MULTIFUNGSI"},
-        {"sheet_name": "MULTIFUNGSI - REKAP - HABIS", "store_name": "MULTIFUNGSI"},
-        {"sheet_name": "JAYA PC - REKAP - READY", "store_name": "JAYA PC"},
-        {"sheet_name": "JAYA PC - REKAP - HABIS", "store_name": "JAYA PC"},
-        {"sheet_name": "IT SHOP - REKAP - READY", "store_name": "IT SHOP"},
-        {"sheet_name": "IT SHOP - REKAP - HABIS", "store_name": "IT SHOP"},
-        {"sheet_name": "LEVEL99 - REKAP - READY", "store_name": "LEVEL99"},
-        {"sheet_name": "LEVEL99 - REKAP - HABIS", "store_name": "LEVEL99"},
-        {"sheet_name": "ABDITAMA - REKAP - READY", "store_name": "ABDITAMA"},
-        {"sheet_name": "ABDITAMA - REKAP - HABIS", "store_name": "ABDITAMA"},
-        {"sheet_name": "DB KLIK - REKAP - READY", "store_name": "DB KLIK"},
-        {"sheet_name": "DB KLIK - REKAP - HABIS", "store_name": "DB KLIK"},
-        {"sheet_name": "LOGITECH - REKAP - READY", "store_name": "LOGITECH"},
-        {"sheet_name": "LOGITECH - REKAP - HABIS", "store_name": "LOGITECH"},
-    ]
-    
-    all_dfs = [load_data_per_sheet(gs_client, config["sheet_name"], config["store_name"]) for config in sheet_configs]
-    df_gabungan = pd.concat(all_dfs, ignore_index=True)
-
-    # Memuat kamus brand
-    df_kamus, df_db_brand = load_kamus_brand(gs_client)
-
-# Hentikan jika data gagal dimuat
-if df_gabungan.empty:
-    st.error("Data utama gagal dimuat. Proses tidak dapat dilanjutkan.")
+if not st.session_state.data_loaded:
+    if st.button("Tarik Data & Mulai Analisis 🚀"):
+        df, db_df, spreadsheet = load_data_from_gsheets()
+        if df is not None:
+            st.session_state.df = df
+            st.session_state.db_df = db_df
+            st.session_state.spreadsheet = spreadsheet
+            st.session_state.data_loaded = True
+            st.rerun()
     st.stop()
 
-# --- Pemrosesan Data (Struktur Asli) ---
-df_gabungan.rename(columns={'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan'}, inplace=True)
-required_cols = ['TANGGAL', 'Toko', 'Nama Produk', 'HARGA', 'Terjual per Bulan', 'BRAND']
-for col in required_cols:
-    if col not in df_gabungan.columns:
-        df_gabungan[col] = None
+df = st.session_state.df
+db_df = st.session_state.db_df
+spreadsheet = st.session_state.spreadsheet
 
-df_gabungan = df_gabungan[required_cols]
-df_gabungan['TANGGAL'] = pd.to_datetime(df_gabungan['TANGGAL'], errors='coerce')
-df_gabungan['HARGA'] = pd.to_numeric(df_gabungan['HARGA'], errors='coerce')
-df_gabungan['Terjual per Bulan'] = pd.to_numeric(df_gabungan['Terjual per Bulan'], errors='coerce')
-df_gabungan.dropna(subset=['TANGGAL', 'Nama Produk', 'HARGA'], inplace=True)
-df_gabungan['Minggu'] = df_gabungan['TANGGAL'].dt.strftime('Minggu %U, %Y')
-df_gabungan['Status'] = df_gabungan['Terjual per Bulan'].apply(lambda x: 'Tersedia' if pd.notnull(x) and x > 0 else 'Stok Kosong')
-
-# Standardisasi Brand (Struktur Asli)
-kamus_dict = df_kamus.set_index('Alias')['Brand_Utama'].to_dict()
-df_gabungan['BRAND'] = df_gabungan['BRAND'].replace(kamus_dict)
-
-# --- MEMUAT DATA FUZZY YANG SUDAH DI-CACHE ---
-df_fuzzy = load_fuzzy_data(spreadsheet_main)
+# Sidebar tambahan tombol update fuzzy
+accuracy_cutoff = st.sidebar.slider("Tingkat Akurasi Pencocokan (%)", 80, 100, 91, 1)
+if st.sidebar.button("🔄 Update Hasil Fuzzy Mingguan"):
+    update_fuzzy_sheet(df, spreadsheet, "hasil_fuzzy", score_cutoff=accuracy_cutoff)
 
 # ===================================================================================
-# SIDEBAR
+# TAB LAYOUT
 # ===================================================================================
-st.sidebar.header("Filter Data")
-unique_weeks = sorted(df_gabungan['Minggu'].unique())
-selected_week = st.sidebar.selectbox("Pilih Minggu Analisis", options=unique_weeks, index=len(unique_weeks)-1)
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⭐ Analisis Toko Saya", "⚖️ Perbandingan Harga", "🏆 Analisis Brand Kompetitor", "📦 Status Stok Produk", "📈 Kinerja Penjualan", "📊 Analisis Mingguan"])
 
-df_filtered = df_gabungan[df_gabungan['Minggu'] == selected_week].copy()
-
-st.sidebar.header("Opsi Admin")
-if st.sidebar.button("Perbarui Cache Fuzzy Similarity"):
-    # Menggunakan df_gabungan (data master lengkap) untuk membuat cache
-    update_fuzzy_cache(spreadsheet_main, df_gabungan)
-
-# ===================================================================================
-# LAYOUT UTAMA APLIKASI
-# ===================================================================================
-st.markdown(f"Menampilkan data untuk: **{selected_week}**")
-
-tab1, tab2, tab3 = st.tabs(["📈 Ringkasan Umum", "🎯 Analisis Produk Serupa", "🆕 Deteksi Produk Baru"])
-
-# --- TAB 1: RINGKASAN UMUM ---
 with tab1:
-    st.header("Ringkasan Umum Performa Toko")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Produk Terpantau", f"{df_filtered['Nama Produk'].nunique():,}")
-    col2.metric("Total Toko Terpantau", f"{df_filtered['Toko'].nunique():,}")
-    col3.metric("Total Brand", f"{df_filtered['BRAND'].nunique():,}")
+    st.header(f"Analisis Kinerja Toko: {my_store_name}")
     
-    st.markdown("---")
-    st.subheader("Distribusi Jumlah Produk per Toko")
-    products_per_store = df_filtered.groupby('Toko')['Nama Produk'].nunique().sort_values(ascending=False)
-    fig_bar = px.bar(products_per_store, x=products_per_store.index, y='Nama Produk', labels={'y': 'Jumlah Produk Unik', 'Toko': 'Nama Toko'}, text_auto=True)
-    st.plotly_chart(fig_bar, use_container_width=True)
+    section_counter = 1
 
-# --- TAB 2: ANALISIS PRODUK SERUPA (MENGGUNAKAN CACHE) ---
-with tab2:
-    st.header("Analisis Kemiripan Produk")
+    st.subheader(f"{section_counter}. Analisis Kategori Terlaris (Berdasarkan Omzet)")
+    section_counter += 1
+    if not db_df.empty and 'KATEGORI' in db_df.columns and 'NAMA' in db_df.columns:
+        @st.cache_data
+        def fuzzy_merge_categories(_rekap_df, _database_df):
+            _rekap_df['Kategori'] = 'Lainnya'
+            db_unique = _database_df.drop_duplicates(subset=['NAMA'])
+            db_map = db_unique.set_index('NAMA')['KATEGORI']
+            for index, row in _rekap_df.iterrows():
+                if pd.notna(row['Nama Produk']):
+                    match, score = process.extractOne(row['Nama Produk'], db_map.index, scorer=fuzz.token_set_ratio)
+                    if score >= 80:
+                        _rekap_df.loc[index, 'Kategori'] = db_map[match]
+            return _rekap_df
+        
+        main_store_cat = fuzzy_merge_categories(main_store_latest_overall.copy(), db_df)
+        category_sales = main_store_cat.groupby('Kategori')['Omzet'].sum().reset_index()
+        
+        if not category_sales.empty:
+            col1, col2 = st.columns([1,2])
+            sort_order_cat = col1.radio("Urutkan:", ["Omzet Tertinggi", "Omzet Terendah"], horizontal=True, key="cat_sort")
+            top_n_cat = col2.number_input("Tampilkan Top:", 1, len(category_sales), min(10, len(category_sales)), key="cat_top_n")
+            cat_sales_sorted = category_sales.sort_values('Omzet', ascending=(sort_order_cat == "Omzet Terendah")).head(top_n_cat)
+            fig_cat = px.bar(cat_sales_sorted, x='Kategori', y='Omzet', title=f'Top {top_n_cat} Kategori Berdasarkan Omzet', text_auto='.2s')
+            st.plotly_chart(fig_cat, use_container_width=True)
 
-    if df_fuzzy.empty:
-        st.info("Data kemiripan produk belum tersedia. Silakan buat cache melalui Opsi Admin di sidebar.")
-    else:
-        all_products_in_cache = sorted(df_fuzzy['Produk_Asal'].unique())
-        product_choice = st.selectbox(
-            "Pilih Produk untuk Dibandingkan",
-            options=all_products_in_cache,
-            index=0
+    st.subheader(f"{section_counter}. Produk Terlaris")
+    section_counter += 1
+    top_products = main_store_latest_overall.sort_values('Terjual per Bulan', ascending=False).head(15).copy()
+    top_products['Harga_rp'] = top_products['Harga'].apply(lambda x: f"Rp {x:,.0f}")
+    top_products['Omzet_rp'] = top_products['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
+    top_products['Tanggal_fmt'] = top_products['Tanggal'].dt.strftime('%Y-%m-%d')
+    
+    display_df_top = top_products[['Nama Produk', 'Harga_rp', 'Omzet_rp', 'Tanggal_fmt']].rename(
+        columns={'Harga_rp': 'Harga', 'Omzet_rp': 'Omzet', 'Tanggal_fmt': 'Update Terakhir'}
+    )
+    st.dataframe(display_df_top, use_container_width=True, hide_index=True)
+
+    st.subheader(f"{section_counter}. Distribusi Omzet Brand")
+    section_counter += 1
+    brand_omzet_main = main_store_latest_overall.groupby('Brand')['Omzet'].sum().reset_index()
+    if not brand_omzet_main.empty:
+        fig_brand_pie = px.pie(brand_omzet_main.sort_values('Omzet', ascending=False).head(7), 
+                            names='Brand', 
+                            values='Omzet', 
+                            title='Distribusi Omzet Top 7 Brand (Snapshot Terakhir)')
+        fig_brand_pie.update_traces(
+            textposition='outside', 
+            texttemplate='<b>%{label}</b><br>%{percent}<br>Rp %{value:,.0f}'
         )
-        min_score = st.slider("Tingkat Kemiripan Minimum (%)", 50, 100, 85)
-
-        if product_choice:
-            results_df = df_fuzzy[
-                (df_fuzzy['Produk_Asal'] == product_choice) & 
-                (df_fuzzy['Skor_Kemiripan'] >= min_score)
-            ].sort_values(by='Skor_Kemiripan', ascending=False)
-            
-            st.write(f"Menampilkan produk yang mirip dengan **{product_choice}**:")
-            
-            if results_df.empty:
-                st.write("Tidak ditemukan produk serupa dengan tingkat kemiripan tersebut.")
-            else:
-                similar_products_names = results_df['Produk_Serupa'].tolist()
-                detailed_info = df_filtered[df_filtered['Nama Produk'].isin(similar_products_names)].copy()
-                detailed_info = detailed_info[['Toko', 'Nama Produk', 'HARGA', 'Status']]
-                
-                final_display_df = pd.merge(
-                    detailed_info,
-                    results_df[['Produk_Serupa', 'Skor_Kemiripan']],
-                    left_on='Nama Produk',
-                    right_on='Produk_Serupa'
-                ).drop(columns=['Produk_Serupa']).sort_values(by='Skor_Kemiripan', ascending=False)
-                
-                final_display_df['HARGA'] = final_display_df['HARGA'].apply(lambda x: f"Rp {x:,.0f}")
-                
-                st.dataframe(
-                    final_display_df[['Toko', 'Nama Produk', 'HARGA', 'Status', 'Skor_Kemiripan']],
-                    use_container_width=True
-                )
-
-# --- TAB 3: DETEKSI PRODUK BARU ---
-with tab3:
-    st.header("Deteksi Produk Baru Antar Minggu")
-    weeks = sorted(df_gabungan['Minggu'].unique())
-    
-    if len(weeks) < 2:
-        st.info("Membutuhkan data dari minimal 2 minggu untuk melakukan perbandingan.")
+        st.plotly_chart(fig_brand_pie, use_container_width=True)
     else:
-        col_before, col_after = st.columns(2)
-        week_before = col_before.selectbox("Pilih Minggu Pembanding", options=weeks, index=len(weeks)-2)
-        week_after = col_after.selectbox("Pilih Minggu Penentu", options=weeks, index=len(weeks)-1)
+        st.info("Tidak ada data omzet brand.")
 
-        if week_before >= week_after:
+    st.subheader(f"{section_counter}. Ringkasan Kinerja Mingguan (WoW Growth)")
+    section_counter += 1
+    
+    main_store_latest_weekly = main_store_df.loc[main_store_df.groupby(['Minggu', 'Nama Produk'])['Tanggal'].idxmax()]
+    
+    weekly_summary_tab1 = main_store_latest_weekly.groupby('Minggu').agg(
+        Omzet=('Omzet', 'sum'),
+        Penjualan_Unit=('Terjual per Bulan', 'sum')
+    ).reset_index()
+    
+    weekly_summary_tab1.sort_values('Minggu', inplace=True) 
+    
+    weekly_summary_tab1['Pertumbuhan Omzet (WoW)'] = weekly_summary_tab1['Omzet'].pct_change().apply(format_wow_growth)
+    weekly_summary_tab1['Omzet'] = weekly_summary_tab1['Omzet'].apply(lambda x: f"Rp {x:,.0f}")
+    st.dataframe(
+        weekly_summary_tab1[['Minggu', 'Omzet', 'Penjualan_Unit', 'Pertumbuhan Omzet (WoW)']].style.apply(
+            lambda s: s.map(style_wow_growth), subset=['Pertumbuhan Omzet (WoW)']
+        ), 
+        use_container_width=True, 
+        hide_index=True
+    )
+
+with tab2:
+    st.header("Perbandingan Produk DB KLIK dengan Kompetitor")
+    fuzzy_results_df = load_fuzzy_results(spreadsheet, "hasil_fuzzy")
+    if fuzzy_results_df.empty:
+        st.info("Belum ada data fuzzy. Klik tombol update di sidebar.")
+    else:
+        selected_product = st.selectbox("Pilih produk dari toko Anda:", sorted(fuzzy_results_df["Produk DB KLIK"].unique()))
+        if selected_product:
+            subset = fuzzy_results_df[fuzzy_results_df["Produk DB KLIK"] == selected_product]
+            st.dataframe(subset, use_container_width=True, hide_index=True)
+
+with tab3:
+    st.header("Analisis Brand di Toko Kompetitor")
+    competitor_latest_overall = df.loc[df.groupby(['Toko','Nama Produk'])['Tanggal'].idxmax()]
+    competitor_df = df[df['Toko'] != "DB KLIK"]
+    if competitor_df.empty:
+        st.warning("Tidak ada data kompetitor pada rentang tanggal ini.")
+    else:
+        competitor_list = sorted(competitor_df['Toko'].unique())
+        for competitor_store in competitor_list:
+            with st.expander(f"Analisis untuk Kompetitor: **{competitor_store}**"):
+                single_comp = competitor_latest_overall[competitor_latest_overall['Toko']==competitor_store]
+                brand_analysis = single_comp.groupby('Brand').agg(Total_Omzet=('Omzet','sum'),Total_Unit_Terjual=('Terjual per Bulan','sum')).reset_index().sort_values("Total_Omzet",ascending=False)
+                st.dataframe(brand_analysis, use_container_width=True, hide_index=True)
+                if not brand_analysis.empty:
+                    fig = px.pie(brand_analysis.head(7), names='Brand', values='Total_Omzet', title=f'Top 7 Brand di {competitor_store}')
+                    st.plotly_chart(fig, use_container_width=True)
+
+with tab4:
+    st.header("Tren Status Stok Mingguan per Toko")
+    df['Minggu'] = df['Tanggal'].dt.to_period('W-SUN').apply(lambda p:p.start_time).dt.date
+    stock_trends = df.groupby(['Minggu','Toko','Status']).size().unstack(fill_value=0).reset_index()
+    stock_trends_melted = stock_trends.melt(id_vars=['Minggu','Toko'], value_vars=['Tersedia','Habis'], var_name='Tipe Stok', value_name='Jumlah Produk')
+    fig = px.line(stock_trends_melted, x='Minggu', y='Jumlah Produk', color='Toko', line_dash='Tipe Stok', markers=True)
+    st.plotly_chart(fig, use_container_width=True)
+    st.dataframe(stock_trends.set_index('Minggu'), use_container_width=True)
+
+with tab5:
+    st.header("Analisis Kinerja Penjualan (Semua Toko)")
+    latest_entries_weekly = df.loc[df.groupby(['Minggu','Toko','Nama Produk'])['Tanggal'].idxmax()]
+    omzet_weekly = latest_entries_weekly.groupby(['Minggu','Toko'])['Omzet'].sum().reset_index()
+    fig = px.line(omzet_weekly, x='Minggu', y='Omzet', color='Toko', markers=True)
+    st.plotly_chart(fig, use_container_width=True)
+    st.subheader("Tabel Rincian Omzet per Tanggal")
+    omzet_pivot = df.pivot_table(index='Toko',columns='Tanggal',values='Omzet',aggfunc='sum').fillna(0)
+    omzet_pivot.reset_index(inplace=True)
+    st.dataframe(omzet_pivot, use_container_width=True, hide_index=True)
+
+with tab6:
+    st.header("Analisis Produk Baru Mingguan")
+    weeks = sorted(df['Minggu'].unique())
+    if len(weeks)<2:
+        st.info("Butuh setidaknya 2 minggu data.")
+    else:
+        col1,col2 = st.columns(2)
+        week_before = col1.selectbox("Minggu Pembanding:", weeks, index=0)
+        week_after = col2.selectbox("Minggu Penentu:", weeks, index=len(weeks)-1)
+        if week_before>=week_after:
             st.error("Minggu Penentu harus setelah Minggu Pembanding.")
         else:
-            all_stores = sorted(df_filtered['Toko'].unique())
+            all_stores = sorted(df['Toko'].unique())
             for store in all_stores:
-                with st.expander(f"Lihat Produk Baru di Toko: **{store}**"):
-                    products_before = set(df_gabungan[(df_gabungan['Toko'] == store) & (df_gabungan['Minggu'] == week_before) & (df_gabungan['Status'] == 'Tersedia')]['Nama Produk'])
-                    products_after = set(df_gabungan[(df_gabungan['Toko'] == store) & (df_gabungan['Minggu'] == week_after) & (df_gabungan['Status'] == 'Tersedia')]['Nama Produk'])
-                    new_products = products_after - products_before
-                    
+                with st.expander(f"Produk Baru di {store}"):
+                    products_before = set(df[(df['Toko']==store)&(df['Minggu']==week_before)&(df['Status']=='Tersedia')]['Nama Produk'])
+                    products_after = set(df[(df['Toko']==store)&(df['Minggu']==week_after)&(df['Status']=='Tersedia')]['Nama Produk'])
+                    new_products = products_after-products_before
                     if not new_products:
-                        st.write("Tidak ada produk baru yang terdeteksi.")
+                        st.write("Tidak ada produk baru.")
                     else:
-                        st.write(f"Ditemukan **{len(new_products)}** produk baru:")
-                        new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store)].copy()
-                        new_products_df['Harga_fmt'] = new_products_df['HARGA'].apply(lambda x: f"Rp {x:,.0f}")
-                        st.dataframe(new_products_df[['Nama Produk', 'Harga_fmt', 'BRAND']], use_container_width=True)
+                        new_df = df[df['Nama Produk'].isin(new_products)&(df['Toko']==store)&(df['Minggu']==week_after)]
+                        st.dataframe(new_df[['Nama Produk','Harga','Stok','Brand']], use_container_width=True, hide_index=True)
