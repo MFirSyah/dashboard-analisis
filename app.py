@@ -2,12 +2,10 @@
 #  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI LENGKAP (6 TAB)
 #  Dibuat oleh: Firman & Asisten AI Gemini
 #  Peningkatan:
-#  - Menggunakan pre-calculated fuzzy matching untuk mempercepat tab analisis.
-#  - Data fuzzy similarity disimpan di sheet 'hasil_fuzzy' dan di-trigger oleh tombol.
 #  - Mengembalikan struktur 6 Tab fungsional.
 #  - Penanganan error secrets yang lebih baik.
-#  - PERBAIKAN: Kode lebih kuat dalam menangani kolom kosong di Google Sheets.
-#  - PERBAIKAN: Mengatasi ValueError saat kalkulasi fuzzy.
+#  - Kode lebih kuat dalam menangani kolom kosong di Google Sheets.
+#  - PERUBAHAN: Analisis Fuzzy dikembalikan ke mode otomatis (real-time) sesuai permintaan.
 # ===================================================================================
 
 # ===================================================================================
@@ -73,14 +71,14 @@ def load_data_from_gsheets():
     """
     gc = get_gspread_client()
     if gc is None:
-        return pd.DataFrame(), pd.DataFrame(), []
+        return pd.DataFrame(), []
 
     try:
         spreadsheet_url = st.secrets["gcp_spreadsheet_url"]
         sh = gc.open_by_url(spreadsheet_url)
     except Exception as e:
         st.error(f"Gagal membuka spreadsheet. Cek kembali URL di secrets Anda. Error: {e}")
-        return pd.DataFrame(), pd.DataFrame(), []
+        return pd.DataFrame(), []
 
     sheet_names = [
         "LOGITECH - REKAP - READY", "LOGITECH - REKAP - HABIS", "DB KLIK - REKAP - READY", "DB KLIK - REKAP - HABIS",
@@ -138,7 +136,7 @@ def load_data_from_gsheets():
 
     if not all_data:
         st.error("Tidak ada data rekap yang berhasil dimuat.")
-        return pd.DataFrame(), pd.DataFrame(), []
+        return pd.DataFrame(), []
 
     df_gabungan = pd.concat(all_data, ignore_index=True)
     df_gabungan.rename(columns={'NAMA': 'Nama Produk', 'HARGA': 'Harga', 'TERJUAL/BLN': 'Terjual/Bln', 'BRAND': 'Brand'}, inplace=True)
@@ -156,68 +154,12 @@ def load_data_from_gsheets():
     df_gabungan = df_gabungan[df_gabungan['Nama Produk'] != '']
     all_brands = sorted(df_gabungan['Brand'].dropna().unique().tolist())
 
-    try:
-        fuzzy_sheet = sh.worksheet("hasil_fuzzy")
-        fuzzy_records = fuzzy_sheet.get_all_records()
-        df_fuzzy = pd.DataFrame(fuzzy_records)
-        if not df_fuzzy.empty:
-            df_fuzzy['Skor'] = pd.to_numeric(df_fuzzy['Skor'], errors='coerce').fillna(0).astype(int)
-        else:
-            df_fuzzy = pd.DataFrame(columns=['Produk_Utama', 'Produk_Serupa', 'Skor'])
-    except gspread.exceptions.WorksheetNotFound:
-        st.error("Worksheet 'hasil_fuzzy' tidak ditemukan! Fitur Analisis Fuzzy tidak akan bekerja.")
-        df_fuzzy = pd.DataFrame(columns=['Produk_Utama', 'Produk_Serupa', 'Skor'])
-    except Exception as e:
-        st.warning(f"Gagal memuat data fuzzy: {e}")
-        df_fuzzy = pd.DataFrame(columns=['Produk_Utama', 'Produk_Serupa', 'Skor'])
-
-    return df_gabungan, df_fuzzy, all_brands
-
-def calculate_and_update_fuzzy_data(df_main):
-    """
-    Menghitung fuzzy similarity untuk semua produk dan menyimpannya ke sheet 'hasil_fuzzy'.
-    """
-    st.info("Memulai proses kalkulasi fuzzy... Ini bisa memakan waktu beberapa menit.")
-    products = df_main['Nama Produk'].unique().tolist()
-    all_matches = []
-    
-    progress_bar = st.progress(0, text="Mempersiapkan produk...")
-    total_products = len(products)
-
-    for i, product in enumerate(products):
-        progress_percentage = (i + 1) / total_products
-        progress_bar.progress(progress_percentage, text=f"Memproses produk {i+1}/{total_products}: {product[:40]}...")
-
-        # PERBAIKAN: Menggunakan process.extract yang lebih stabil, mengembalikan 2 nilai (string, skor)
-        # untuk menghindari ValueError: not enough values to unpack.
-        matches = process.extract(product, products[i+1:], scorer=fuzz.token_sort_ratio, score_cutoff=75)
-        if matches:
-            # Loop diubah untuk unpack 2 nilai (match, score)
-            for match, score in matches:
-                all_matches.append({'Produk_Utama': product, 'Produk_Serupa': match, 'Skor': score})
-
-    progress_bar.progress(1.0, text="Kalkulasi selesai. Menyimpan ke Google Sheets...")
-    
-    if not all_matches:
-        st.warning("Tidak ditemukan kecocokan produk.")
-        return
-
-    df_to_upload = pd.DataFrame(all_matches)
-    
-    try:
-        gc = get_gspread_client()
-        sh = gc.open_by_url(st.secrets["gcp_spreadsheet_url"])
-        worksheet = sh.worksheet("hasil_fuzzy")
-        worksheet.clear()
-        worksheet.update([df_to_upload.columns.values.tolist()] + df_to_upload.values.tolist(), value_input_option='USER_ENTERED')
-        st.success(f"Berhasil! {len(df_to_upload)} data kemiripan produk telah disimpan.")
-    except Exception as e:
-        st.error(f"Gagal menyimpan data ke Google Sheets: {e}")
+    return df_gabungan, all_brands
 
 # ===================================================================================
 # MEMUAT DATA DAN MEMBUAT UI
 # ===================================================================================
-df_gabungan, df_fuzzy, all_brands = load_data_from_gsheets()
+df_gabungan, all_brands = load_data_from_gsheets()
 
 if df_gabungan.empty:
     st.error("Gagal memuat data utama. Dashboard tidak dapat ditampilkan.")
@@ -252,44 +194,38 @@ else:
         fig_pie = px.pie(produk_per_toko, names='Toko', values='count', hole=0.3)
         st.plotly_chart(fig_pie, use_container_width=True)
         
-        st.divider()
-        st.subheader("Manajemen Data Fuzzy Similarity")
-        st.info("Tombol ini akan menghitung ulang semua kemiripan produk. Proses ini bisa memakan waktu lama. Lakukan ini seminggu sekali atau saat ada banyak produk baru.")
-        if st.button("🔄 Perbarui dan Hitung Ulang Data Fuzzy"):
-            calculate_and_update_fuzzy_data(df_gabungan)
-            st.cache_data.clear()
-            st.success("Proses selesai! Dashboard akan dimuat ulang.")
-            st.rerun()
 
     with tab2:
-        st.header("Analisis Fuzzy Similarity (Cepat & Efisien)")
-        st.write("Pilih produk untuk melihat produk serupa dari toko lain. Data diambil dari hasil kalkulasi yang sudah disimpan.")
+        st.header("Analisis Fuzzy Similarity (Otomatis)")
+        st.write("Pilih produk untuk melihat produk serupa dari toko lain. Proses ini akan menghitung kemiripan secara langsung dan mungkin memakan waktu beberapa detik.")
 
         all_product_names = sorted(df_gabungan['Nama Produk'].unique())
         selected_product = st.selectbox("Pilih Produk untuk Dibandingkan", all_product_names)
 
         if selected_product:
-            if df_fuzzy.empty:
-                st.warning("Data fuzzy belum tersedia. Silakan hitung di tab 'Ringkasan Umum'.")
+            st.markdown(f"### Produk Serupa untuk: **'{selected_product}'**")
+            
+            # Logika fuzzy on-the-fly yang akan memakan waktu
+            with st.spinner('Mencari produk serupa, ini mungkin memakan waktu beberapa detik...'):
+                product_choices = df_gabungan['Nama Produk'].unique().tolist()
+                product_choices.remove(selected_product)
+
+                matches = process.extract(selected_product, product_choices, scorer=fuzz.token_sort_ratio, limit=100, score_cutoff=75)
+            
+            st.write("**Info Produk Asli:**")
+            st.dataframe(df_gabungan[df_gabungan['Nama Produk'] == selected_product][['Toko', 'Harga', 'Status']].style.format({'Harga': 'Rp {:,.0f}'}))
+
+            if not matches:
+                st.info("Tidak ditemukan produk serupa di atas ambang batas (75%).")
             else:
-                st.markdown(f"### Produk Serupa untuk: **'{selected_product}'**")
-                
-                results1 = df_fuzzy[df_fuzzy['Produk_Utama'] == selected_product]
-                results2 = df_fuzzy[df_fuzzy['Produk_Serupa'] == selected_product].copy()
-                results2.rename(columns={'Produk_Serupa': 'Produk_Utama', 'Produk_Utama': 'Produk_Serupa'}, inplace=True)
-                similar_df = pd.concat([results1, results2]).drop_duplicates(subset=['Produk_Serupa']).sort_values(by='Skor', ascending=False)
+                st.write("**Produk Serupa yang Ditemukan:**")
+                similar_df = pd.DataFrame(matches, columns=['Produk_Serupa', 'Skor']).sort_values(by='Skor', ascending=False)
 
-                st.write("**Info Produk Asli:**")
-                st.dataframe(df_gabungan[df_gabungan['Nama Produk'] == selected_product][['Toko', 'Harga', 'Status']].style.format({'Harga': 'Rp {:,.0f}'}))
+                for _, row in similar_df.iterrows():
+                    info_serupa = df_gabungan[df_gabungan['Nama Produk'] == row['Produk_Serupa']]
+                    st.markdown(f"**`{row['Produk_Serupa']}`** (Skor Kemiripan: **{row['Skor']}%**)")
+                    st.dataframe(info_serupa[['Toko', 'Harga', 'Status', 'Terjual/Bln']].style.format({'Harga': 'Rp {:,.0f}'}))
 
-                if similar_df.empty:
-                    st.info("Tidak ditemukan produk serupa di atas ambang batas (75%).")
-                else:
-                    st.write("**Produk Serupa yang Ditemukan:**")
-                    for _, row in similar_df.iterrows():
-                        info_serupa = df_gabungan[df_gabungan['Nama Produk'] == row['Produk_Serupa']]
-                        st.markdown(f"**`{row['Produk_Serupa']}`** (Skor Kemiripan: **{row['Skor']}%**)")
-                        st.dataframe(info_serupa[['Toko', 'Harga', 'Status', 'Terjual/Bln']].style.format({'Harga': 'Rp {:,.0f}'}))
 
     with tab3:
         st.header("Analisis Produk Terlaris")
