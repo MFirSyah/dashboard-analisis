@@ -6,6 +6,7 @@
 #  - Data fuzzy similarity disimpan di sheet 'hasil_fuzzy' dan di-trigger oleh tombol.
 #  - Mengembalikan struktur 6 Tab fungsional.
 #  - Penanganan error secrets yang lebih baik.
+#  - PERBAIKAN: Kode lebih kuat dalam menangani kolom kosong di Google Sheets.
 # ===================================================================================
 
 # ===================================================================================
@@ -31,8 +32,6 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 
 def get_gspread_client():
     """Menginisialisasi dan mengembalikan klien gspread dengan penanganan secrets yang aman."""
-    # PERBAIKAN: Memeriksa keberadaan semua kunci secrets sebelum digunakan
-    # Diubah gcp_private_key menjadi gcp_private_key_raw agar cocok dengan TOML
     required_secrets = [
         "gcp_type", "gcp_project_id", "gcp_private_key_id", "gcp_private_key_raw",
         "gcp_client_email", "gcp_client_id", "gcp_auth_uri", "gcp_token_uri",
@@ -50,7 +49,6 @@ def get_gspread_client():
             "type": st.secrets["gcp_type"],
             "project_id": st.secrets["gcp_project_id"],
             "private_key_id": st.secrets["gcp_private_key_id"],
-            # PERBAIKAN: Menggunakan gcp_private_key_raw agar cocok dengan nama di TOML Anda
             "private_key": st.secrets["gcp_private_key_raw"], 
             "client_email": st.secrets["gcp_client_email"],
             "client_id": st.secrets["gcp_client_id"],
@@ -74,7 +72,7 @@ def load_data_from_gsheets():
     """
     gc = get_gspread_client()
     if gc is None:
-        return pd.DataFrame(), pd.DataFrame(), [] # Return empty dataframes if connection fails
+        return pd.DataFrame(), pd.DataFrame(), []
 
     try:
         spreadsheet_url = st.secrets["gcp_spreadsheet_url"]
@@ -101,7 +99,31 @@ def load_data_from_gsheets():
     for sheet_name in sheet_names:
         try:
             worksheet = sh.worksheet(sheet_name)
-            df = pd.DataFrame(worksheet.get_all_records())
+            # PERBAIKAN: Gunakan get_all_values() untuk menghindari error header duplikat
+            all_values = worksheet.get_all_values()
+            
+            if not all_values:
+                st.warning(f"Sheet '{sheet_name}' kosong, akan dilewati.")
+                continue
+
+            header = all_values[0]
+            data = all_values[1:]
+
+            # Logika untuk membersihkan header yang kosong/duplikat
+            last_valid_col_index = -1
+            for i, col_name in enumerate(header):
+                if col_name.strip():
+                    last_valid_col_index = i
+            
+            if last_valid_col_index == -1:
+                st.warning(f"Sheet '{sheet_name}' tidak memiliki header yang valid, akan dilewati.")
+                continue
+
+            num_valid_cols = last_valid_col_index + 1
+            valid_header = header[:num_valid_cols]
+            valid_data = [row[:num_valid_cols] for row in data]
+            
+            df = pd.DataFrame(valid_data, columns=valid_header)
             
             store_key = sheet_name.split(' - ')[0]
             status_key = sheet_name.split(' - ')[-1]
@@ -113,7 +135,7 @@ def load_data_from_gsheets():
         except gspread.exceptions.WorksheetNotFound:
             st.warning(f"Sheet '{sheet_name}' tidak ditemukan.")
         except Exception as e:
-            st.error(f"Gagal memuat sheet '{sheet_name}': {e}")
+            st.error(f"Gagal memproses sheet '{sheet_name}': {e}")
 
     if not all_data:
         st.error("Tidak ada data rekap yang berhasil dimuat.")
@@ -125,11 +147,16 @@ def load_data_from_gsheets():
     # Pemrosesan data
     df_gabungan['Harga'] = pd.to_numeric(df_gabungan['Harga'], errors='coerce').fillna(0).astype(int)
     df_gabungan['Terjual/Bln'] = pd.to_numeric(df_gabungan['Terjual/Bln'], errors='coerce').fillna(0).astype(int)
-    df_gabungan['TANGGAL'] = pd.to_datetime(df_gabungan['TANGGAL'], errors='coerce')
-    df_gabungan.dropna(subset=['Nama Produk', 'TANGGAL'], inplace=True)
-    df_gabungan = df_gabungan[df_gabungan['Nama Produk'] != '']
-    df_gabungan['Minggu'] = df_gabungan['TANGGAL'].dt.strftime('%Y-%U')
+    # Periksa keberadaan kolom TANGGAL sebelum memprosesnya
+    if 'TANGGAL' in df_gabungan.columns:
+        df_gabungan['TANGGAL'] = pd.to_datetime(df_gabungan['TANGGAL'], errors='coerce')
+        df_gabungan.dropna(subset=['Nama Produk', 'TANGGAL'], inplace=True)
+        df_gabungan['Minggu'] = df_gabungan['TANGGAL'].dt.strftime('%Y-%U')
+    else:
+        st.warning("Kolom 'TANGGAL' tidak ditemukan di beberapa sheet. Analisis mingguan mungkin tidak akurat.")
+        df_gabungan['Minggu'] = pd.to_datetime('today').strftime('%Y-%U') # Fallback
 
+    df_gabungan = df_gabungan[df_gabungan['Nama Produk'] != '']
     all_brands = sorted(df_gabungan['Brand'].dropna().unique().tolist())
 
     # Load pre-calculated fuzzy data
@@ -200,7 +227,7 @@ else:
 
     # Sidebar Filters
     st.sidebar.header("Filter Global")
-    selected_brands = st.sidebar.multiselect("Pilih Brand", all_brands, default=None)
+    selected_brands = st.sidebar.multoselect("Pilih Brand", all_brands, default=None)
     
     df_filtered = df_gabungan.copy()
     if selected_brands:
@@ -275,8 +302,8 @@ else:
         st.dataframe(top_products[['Nama Produk', 'Brand', 'Toko', 'Harga', 'Terjual/Bln']].style.format({'Harga': 'Rp {:,.0f}'}), use_container_width=True)
 
     # Logika untuk Tab 4, 5, dan 6
-    weeks = sorted(df_filtered['Minggu'].unique(), reverse=True)
-    if len(weeks) > 1:
+    if 'Minggu' in df_filtered.columns and df_filtered['Minggu'].nunique() > 1:
+        weeks = sorted(df_filtered['Minggu'].unique(), reverse=True)
         col_minggu1, col_minggu2 = st.columns(2)
         with col_minggu1:
             week_after = st.selectbox("Pilih Minggu Penentu:", weeks, index=0, key='minggu_penentu')
@@ -331,5 +358,4 @@ else:
 
     else:
         st.warning("Data tidak cukup untuk perbandingan mingguan. Silakan tunggu hingga ada data untuk minimal 2 minggu.")
-
 
