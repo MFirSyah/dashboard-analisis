@@ -157,8 +157,13 @@ if not st.session_state.data_loaded:
     st.stop()
 
 df = st.session_state.df
+
 db_df = st.session_state.db_df
+
 spreadsheet = st.session_state.spreadsheet
+
+# Nama toko utama (default). Jika mau diganti, ubah di sini atau buat input di sidebar.
+my_store_name = "DB KLIK"
 
 # Sidebar tambahan tombol update fuzzy
 accuracy_cutoff = st.sidebar.slider("Tingkat Akurasi Pencocokan (%)", 80, 100, 91, 1)
