@@ -175,29 +175,24 @@ else:
 
     # ================================== TAB 1: ANALISIS UMUM ==================================
     with tab1:
-        st.header("Analisis Umum Tren Penjualan")
-        col1, col2 = st.columns(2)
-        with col1:
-            unique_brands = sorted(df['BRAND'].unique())
-            selected_brands = st.multiselect("Pilih Brand:", unique_brands, default=unique_brands[:5], key="tab1_brands")
-        with col2:
-            unique_stores = sorted(df['Toko'].unique())
-            selected_stores = st.multiselect("Pilih Toko:", unique_stores, default=unique_stores, key="tab1_stores")
+        st.header("Analisis Umum Tren Penjualan (Semua Toko & Brand)")
 
-        if selected_brands and selected_stores:
-            filtered_df = df[df['BRAND'].isin(selected_brands) & df['Toko'].isin(selected_stores)]
-            st.subheader("🏆 Produk Terlaris")
-            top_products = filtered_df.sort_values(by='Terjual per Bulan', ascending=False).head(10)
-            st.dataframe(top_products[['Nama Produk', 'BRAND', 'Toko', 'Harga', 'Terjual per Bulan']], use_container_width=True)
-            st.subheader("💰 Distribusi Harga Produk")
-            fig_hist = px.histogram(filtered_df, x="Harga", color="BRAND", title="Distribusi Harga Berdasarkan Brand")
-            st.plotly_chart(fig_hist, use_container_width=True)
-            st.subheader("🛒 Penjualan per Toko")
-            sales_by_store = filtered_df.groupby('Toko')['Terjual per Bulan'].sum().reset_index()
-            fig_bar = px.bar(sales_by_store, x='Toko', y='Terjual per Bulan', title="Total Penjualan per Bulan di Setiap Toko")
-            st.plotly_chart(fig_bar, use_container_width=True)
-        else:
-            st.warning("Silakan pilih minimal satu Brand dan satu Toko.")
+        st.subheader("🏆 Produk Terlaris Keseluruhan")
+        top_products = df.sort_values(by='Terjual per Bulan', ascending=False).head(10)
+        st.dataframe(top_products[['Nama Produk', 'BRAND', 'Toko', 'Harga', 'Terjual per Bulan']], use_container_width=True)
+
+        st.subheader("💰 Distribusi Harga Produk Keseluruhan")
+        st.info("Grafik di bawah menampilkan distribusi harga untuk 15 brand dengan jumlah produk terbanyak agar tetap mudah dibaca.")
+        # Mengambil 15 brand dengan produk terbanyak untuk visualisasi
+        top_brands_for_hist = df['BRAND'].value_counts().nlargest(15).index
+        df_for_hist = df[df['BRAND'].isin(top_brands_for_hist)]
+        fig_hist = px.histogram(df_for_hist, x="Harga", color="BRAND", title="Distribusi Harga Berdasarkan Top 15 Brand")
+        st.plotly_chart(fig_hist, use_container_width=True)
+
+        st.subheader("🛒 Penjualan per Toko")
+        sales_by_store = df.groupby('Toko')['Terjual per Bulan'].sum().reset_index()
+        fig_bar = px.bar(sales_by_store, x='Toko', y='Terjual per Bulan', title="Total Penjualan per Bulan di Setiap Toko")
+        st.plotly_chart(fig_bar, use_container_width=True)
     
     # ================================== TAB 2: ANALISIS KOMPETITOR ==================================
     with tab2:
