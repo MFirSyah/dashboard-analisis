@@ -5,6 +5,7 @@
 #  1. Pembacaan header dibuat robust (otomatis ke huruf besar).
 #  2. Metode otentikasi gspread diperbarui untuk memperbaiki error '_auth_request'.
 #  3. Tampilan status proses dibuat lebih detail dan informatif.
+#  4. Peringatan format tanggal (UserWarning) telah diperbaiki.
 # ===================================================================================
 
 # ===================================================================================
@@ -101,7 +102,8 @@ def load_all_data():
         # Standardisasi nama kolom utama setelah digabung
         full_df = standardize_columns(full_df)
 
-        full_df['TANGGAL'] = pd.to_datetime(full_df['TANGGAL'], errors='coerce')
+        # PERBAIKAN: Menambahkan dayfirst=True untuk memastikan format tanggal DD/MM/YYYY dibaca dengan benar
+        full_df['TANGGAL'] = pd.to_datetime(full_df['TANGGAL'], errors='coerce', dayfirst=True)
         full_df = full_df.dropna(subset=['TANGGAL'])
         
         # Pisahkan data DB Klik dan Kompetitor
