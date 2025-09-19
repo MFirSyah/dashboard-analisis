@@ -22,6 +22,7 @@ import numpy as np
 # Library ML/AI
 from sentence_transformers import SentenceTransformer, util
 import torch
+from google.oauth2.service_account import Credentials
 
 
 # ===================================================================================
@@ -43,12 +44,13 @@ def get_gspread_client():
     """Membuat dan mengembalikan client gspread yang diautentikasi menggunakan metode terbaru."""
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"  # opsional, kalau mau akses Drive juga
     ]
     creds_dict = {
         "type": st.secrets["gcp_type"],
         "project_id": st.secrets["gcp_project_id"],
         "private_key_id": st.secrets["gcp_private_key_id"],
-        "private_key": st.secrets["gcp_private_key"],
+        "private_key": st.secrets["gcp_private_key"].replace("\\n", "\n"),  # 🔑 penting untuk format key
         "client_email": st.secrets["gcp_client_email"],
         "client_id": st.secrets["gcp_client_id"],
         "auth_uri": st.secrets["gcp_auth_uri"],
@@ -56,8 +58,9 @@ def get_gspread_client():
         "auth_provider_x509_cert_url": st.secrets["gcp_auth_provider_x509_cert_url"],
         "client_x509_cert_url": st.secrets["gcp_client_x509_cert_url"]
     }
-    # Menggunakan metode otentikasi yang direkomendasikan gspread v5+
-    return gspread.service_account_from_dict(creds_dict, scopes=scopes)
+
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    return gspread.authorize(creds)
 
 # --- FUNGSI UNTUK MEMBACA WORKSHEET MENJADI DATAFRAME ---
 def get_df_from_ws(worksheet):
@@ -386,4 +389,5 @@ with tab6:
     fig_stock = px.bar(stock_status, x='TOKO', y='JUMLAH', color='STATUS', title="Jumlah Produk Berdasarkan Status Ketersediaan", labels={'TOKO': 'Toko', 'JUMLAH': 'Jumlah Produk'}, barmode='group', color_discrete_map={'Tersedia': 'green', 'Habis': 'red'})
     fig_stock.update_layout(xaxis={'categoryorder':'total descending'})
     st.plotly_chart(fig_stock, use_container_width=True)
+
 
