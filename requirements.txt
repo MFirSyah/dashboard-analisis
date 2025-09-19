@@ -1,14 +1,23 @@
+File requirements untuk Dashboard Analisis SBERT
+Framework utama untuk aplikasi web
 streamlit
+
+Untuk manipulasi dan analisis data
 pandas
-gspread
-oauth2client
-fuzzywuzzy
-python-levenshtein
+
+Untuk membuat grafik dan visualisasi
 plotly
-numpy
-streamlit
-pandas
-google-api-python-client
+
+Untuk berinteraksi dengan Google Sheets
+gspread
+gspread-dataframe
+
+Library utama untuk model SBERT
+sentence-transformers
+
+Backend Machine Learning untuk SBERT
+torch
+
+Untuk autentikasi dengan Google Cloud/Sheets
+google-auth
 google-auth-oauthlib
-google-auth-httplib2
-thefuzz
