@@ -128,15 +128,15 @@ def run_sbert_analysis(ss, df_dbklik, df_competitors):
     # Kosongkan sheet dan tulis header baru
     worksheet.clear()
     header = [
-        'Tanggal Analisis', 'Produk DBKlik', 'SKU DBKlik', 'Harga DBKlik',
-        'Produk Kompetitor', 'Harga Kompetitor', 'Toko Kompetitor', 
+        'TANGGAL Analisis', 'Produk DBKlik', 'SKU DBKlik', 'HARGA DBKlik',
+        'Produk Kompetitor', 'HARGA Kompetitor', 'Toko Kompetitor', 
         'Skor Kemiripan (%)', 'Brand'
     ]
     worksheet.append_row(header, value_input_option='USER_ENTERED')
     
     # Persiapan data
-    df_dbklik_filtered = df_dbklik.dropna(subset=['NAMA', 'BRAND', 'Harga']).copy()
-    df_competitors_filtered = df_competitors.dropna(subset=['NAMA', 'BRAND', 'Harga']).copy()
+    df_dbklik_filtered = df_dbklik.dropna(subset=['NAMA', 'BRAND', 'HARGA']).copy()
+    df_competitors_filtered = df_competitors.dropna(subset=['NAMA', 'BRAND', 'HARGA']).copy()
     
     brands = df_dbklik_filtered['BRAND'].unique()
     competitor_embeddings_by_brand = {}
@@ -180,9 +180,9 @@ def run_sbert_analysis(ss, df_dbklik, df_competitors):
                         datetime.now().strftime('%Y-%m-%d'),
                         row['NAMA'],
                         row.get('SKU', 'N/A'),
-                        row['Harga'],
+                        row['HARGA'],
                         match_row['NAMA'],
-                        match_row['Harga'],
+                        match_row['HARGA'],
                         match_row['TOKO'],
                         f"{score.item() * 100:.2f}",
                         row['BRAND']
@@ -224,18 +224,18 @@ if 'data_loaded' not in st.session_state:
 if 'sbert_check_done' not in st.session_state:
     st.session_state.sbert_check_done = True # Tandai agar tidak dicek berulang kali
     
-    # Ambil tanggal terbaru dari data kompetitor
+    # Ambil TANGGAL terbaru dari data kompetitor
     latest_competitor_date = st.session_state.df_competitors['TANGGAL'].max().strftime('%Y-%m-%d')
     
-    # Ambil tanggal analisis terakhir dari hasil sbert
-    latest_analysis_date = "1970-01-01" # Tanggal default jika hasil kosong
-    if not st.session_state.df_hasil_sbert.empty and 'Tanggal Analisis' in st.session_state.df_hasil_sbert.columns:
+    # Ambil TANGGAL analisis terakhir dari hasil sbert
+    latest_analysis_date = "1970-01-01" # TANGGAL default jika hasil kosong
+    if not st.session_state.df_hasil_sbert.empty and 'TANGGAL Analisis' in st.session_state.df_hasil_sbert.columns:
         # Konversi ke datetime untuk memastikan perbandingan benar
-        sbert_dates = pd.to_datetime(st.session_state.df_hasil_sbert['Tanggal Analisis'], errors='coerce')
+        sbert_dates = pd.to_datetime(st.session_state.df_hasil_sbert['TANGGAL Analisis'], errors='coerce')
         if not sbert_dates.isnull().all():
             latest_analysis_date = sbert_dates.max().strftime('%Y-%m-%d')
             
-    # Bandingkan tanggal
+    # Bandingkan TANGGAL
     if latest_competitor_date > latest_analysis_date:
         st.warning("Data kompetitor lebih baru dari analisis terakhir. Menjalankan analisis SBERT secara otomatis...")
         with st.spinner("Mohon tunggu, proses otomatis sedang berjalan..."):
@@ -265,7 +265,7 @@ if st.sidebar.button("Jalankan Ulang Analisis SBERT Manual", key="manual_sbert")
 
 
 # --- TABS ---
-tab1, tab2, tab3 = st.tabs(["📈 Ringkasan Penjualan", "⚖️ Perbandingan Harga (SBERT)", "🆕 Analisis Produk Baru"])
+tab1, tab2, tab3 = st.tabs(["📈 Ringkasan Penjualan", "⚖️ Perbandingan HARGA (SBERT)", "🆕 Analisis Produk Baru"])
 
 with tab1:
     st.header("Ringkasan Penjualan DB Klik")
@@ -279,18 +279,18 @@ with tab1:
         filtered_dbklik = filtered_dbklik[filtered_dbklik['BRAND'] == brand_filter]
 
     # Grafik penjualan per brand
-    sales_by_brand = filtered_dbklik.groupby('BRAND')['Terjual/Bln'].sum().sort_values(ascending=False).head(15)
-    fig_brand = px.bar(sales_by_brand, x=sales_by_brand.index, y='Terjual/Bln', title="Top 15 Brand Terlaris", labels={'index': 'Brand', 'Terjual/Bln': 'Total Terjual per Bulan'})
+    sales_by_brand = filtered_dbklik.groupby('BRAND')['TERJUAL/BLN'].sum().sort_values(ascending=False).head(15)
+    fig_brand = px.bar(sales_by_brand, x=sales_by_brand.index, y='TERJUAL/BLN', title="Top 15 Brand Terlaris", labels={'index': 'Brand', 'TERJUAL/BLN': 'Total Terjual per Bulan'})
     st.plotly_chart(fig_brand, use_container_width=True)
 
     # Tabel produk terlaris
     st.subheader("Produk Terlaris")
-    top_products = filtered_dbklik.sort_values(by="Terjual/Bln", ascending=False).head(20)
-    st.dataframe(top_products[['NAMA', 'BRAND', 'KATEGORI', 'Harga', 'Terjual/Bln']])
+    top_products = filtered_dbklik.sort_values(by="TERJUAL/BLN", ascending=False).head(20)
+    st.dataframe(top_products[['NAMA', 'BRAND', 'KATEGORI', 'HARGA', 'TERJUAL/BLN']])
 
 
 with tab2:
-    st.header("Perbandingan Harga Produk dengan Kompetitor (Metode SBERT)")
+    st.header("Perbandingan HARGA Produk dengan Kompetitor (Metode SBERT)")
     
     if st.session_state.df_hasil_sbert.empty:
         st.warning("Data hasil perbandingan belum tersedia. Silakan jalankan analisis SBERT melalui tombol di sidebar.")
@@ -303,16 +303,16 @@ with tab2:
             comparison_df = st.session_state.df_hasil_sbert[st.session_state.df_hasil_sbert['Produk DBKlik'] == selected_product].copy()
             
             # Konversi kolom ke numerik untuk perhitungan
-            comparison_df['Harga DBKlik'] = pd.to_numeric(comparison_df['Harga DBKlik'], errors='coerce')
-            comparison_df['Harga Kompetitor'] = pd.to_numeric(comparison_df['Harga Kompetitor'], errors='coerce')
+            comparison_df['HARGA DBKlik'] = pd.to_numeric(comparison_df['HARGA DBKlik'], errors='coerce')
+            comparison_df['HARGA Kompetitor'] = pd.to_numeric(comparison_df['HARGA Kompetitor'], errors='coerce')
             
             # Hitung selisih
-            comparison_df['Selisih'] = comparison_df['Harga Kompetitor'] - comparison_df['Harga DBKlik']
+            comparison_df['Selisih'] = comparison_df['HARGA Kompetitor'] - comparison_df['HARGA DBKlik']
             
             # Format tampilan
             comparison_df['Skor Kemiripan (%)'] = pd.to_numeric(comparison_df['Skor Kemiripan (%)'], errors='coerce').map('{:,.2f}%'.format)
-            comparison_df['Harga DBKlik'] = comparison_df['Harga DBKlik'].map('Rp {:,.0f}'.format)
-            comparison_df['Harga Kompetitor'] = comparison_df['Harga Kompetitor'].map('Rp {:,.0f}'.format)
+            comparison_df['HARGA DBKlik'] = comparison_df['HARGA DBKlik'].map('Rp {:,.0f}'.format)
+            comparison_df['HARGA Kompetitor'] = comparison_df['HARGA Kompetitor'].map('Rp {:,.0f}'.format)
             
             def format_selisih(x):
                 if pd.isna(x):
@@ -322,11 +322,11 @@ with tab2:
                 elif x < 0:
                     return f"Lebih Murah Rp {abs(x):,.0f}"
                 else:
-                    return "Harga Sama"
+                    return "HARGA Sama"
             
             comparison_df['Keterangan'] = comparison_df['Selisih'].apply(format_selisih)
 
-            st.dataframe(comparison_df[['Toko Kompetitor', 'Produk Kompetitor', 'Harga Kompetitor', 'Keterangan', 'Skor Kemiripan (%)']], use_container_width=True)
+            st.dataframe(comparison_df[['Toko Kompetitor', 'Produk Kompetitor', 'HARGA Kompetitor', 'Keterangan', 'Skor Kemiripan (%)']], use_container_width=True)
 
 
 with tab3:
@@ -367,7 +367,8 @@ with tab3:
                     else:
                         st.write(f"Ditemukan **{len(new_products)}** produk baru:")
                         new_products_df = df_filtered[df_filtered['NAMA'].isin(new_products) & (df_filtered['TOKO'] == store) & (df_filtered['Minggu'] == week_after)].copy()
-                        new_products_df['Harga_fmt'] = new_products_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
-                        st.dataframe(new_products_df[['NAMA', 'Harga_fmt']], use_container_width=True)
+                        new_products_df['HARGA_fmt'] = new_products_df['HARGA'].apply(lambda x: f"Rp {x:,.0f}")
+                        st.dataframe(new_products_df[['NAMA', 'HARGA_fmt']], use_container_width=True)
     else:
         st.info("Tidak cukup data mingguan untuk melakukan perbandingan.")
+
