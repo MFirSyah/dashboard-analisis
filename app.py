@@ -265,7 +265,14 @@ if st.sidebar.button("Jalankan Ulang Analisis SBERT Manual", key="manual_sbert")
 
 
 # --- TABS ---
-tab1, tab2, tab3 = st.tabs(["📈 Ringkasan Penjualan", "⚖️ Perbandingan HARGA (SBERT)", "🆕 Analisis Produk Baru"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "📈 Ringkasan Penjualan", 
+    "⚖️ Perbandingan HARGA (SBERT)", 
+    "🆕 Analisis Produk Baru",
+    "🚀 Analisis Kompetitor",
+    "💰 Distribusi HARGA",
+    "📦 Ketersediaan Stok"
+])
 
 with tab1:
     st.header("Ringkasan Penjualan DB Klik")
@@ -333,14 +340,14 @@ with tab3:
     st.header("Analisis Produk Baru di Toko Kompetitor")
     
     # Gabungkan semua data untuk analisis ini
-    df_combined = pd.concat([st.session_state.df_dbklik, st.session_state.df_competitors], ignore_index=True)
-    df_combined['Minggu'] = df_combined['TANGGAL'].dt.to_period('W').astype(str)
+    df_combined_tab3 = pd.concat([st.session_state.df_dbklik, st.session_state.df_competitors], ignore_index=True)
+    df_combined_tab3['Minggu'] = df_combined_tab3['TANGGAL'].dt.to_period('W').astype(str)
     
     # Filter data
-    all_brands_tab3 = ['Semua Brand'] + sorted(df_combined['BRAND'].unique().tolist())
+    all_brands_tab3 = ['Semua Brand'] + sorted(df_combined_tab3['BRAND'].unique().tolist())
     brand_filter_tab3 = st.selectbox("Filter berdasarkan Brand:", all_brands_tab3, key="brand_tab3")
 
-    df_filtered = df_combined
+    df_filtered = df_combined_tab3
     if brand_filter_tab3 != 'Semua Brand':
         df_filtered = df_filtered[df_filtered['BRAND'] == brand_filter_tab3]
         
@@ -371,4 +378,63 @@ with tab3:
                         st.dataframe(new_products_df[['NAMA', 'HARGA_fmt']], use_container_width=True)
     else:
         st.info("Tidak cukup data mingguan untuk melakukan perbandingan.")
+
+with tab4:
+    st.header("🚀 Analisis Kompetitor")
+    df_competitors = st.session_state.df_competitors
+
+    # Jumlah produk per toko kompetitor
+    st.subheader("Jumlah Produk per Toko Kompetitor")
+    products_per_store = df_competitors['TOKO'].value_counts()
+    fig_products_store = px.bar(products_per_store, x=products_per_store.index, y=products_per_store.values,
+                                title="Jumlah Produk yang Dijual per Toko",
+                                labels={'index': 'Toko', 'y': 'Jumlah Produk'})
+    st.plotly_chart(fig_products_store, use_container_width=True)
+
+    # Produk terlaris dari semua kompetitor
+    st.subheader("Top 20 Produk Terlaris di Semua Kompetitor")
+    top_competitor_products = df_competitors.sort_values(by="TERJUAL/BLN", ascending=False).head(20)
+    st.dataframe(top_competitor_products[['NAMA', 'TOKO', 'BRAND', 'HARGA', 'TERJUAL/BLN']], use_container_width=True)
+
+with tab5:
+    st.header("💰 Distribusi HARGA")
+    df_combined_tab5 = pd.concat([st.session_state.df_dbklik, st.session_state.df_competitors], ignore_index=True)
+    df_combined_tab5['HARGA'] = pd.to_numeric(df_combined_tab5['HARGA'], errors='coerce')
+    df_combined_tab5.dropna(subset=['HARGA'], inplace=True)
+    
+    st.subheader("Perbandingan Sebaran HARGA Produk per Toko")
+    
+    # Filter brand untuk perbandingan HARGA
+    all_brands_tab5 = ['Semua Brand'] + sorted(df_combined_tab5['BRAND'].unique().tolist())
+    brand_filter_tab5 = st.selectbox("Pilih Brand untuk Perbandingan HARGA:", all_brands_tab5, key="brand_tab5")
+
+    df_filtered_HARGA = df_combined_tab5
+    if brand_filter_tab5 != 'Semua Brand':
+        df_filtered_HARGA = df_filtered_HARGA[df_filtered_HARGA['BRAND'] == brand_filter_tab5]
+        
+    # Box plot untuk melihat distribusi HARGA
+    fig_price_dist = px.box(df_filtered_HARGA, x='TOKO', y='HARGA', 
+                            title=f"Distribusi HARGA untuk Brand: {brand_filter_tab5}",
+                            labels={'TOKO': 'Toko', 'HARGA': 'HARGA Produk (Rp)'},
+                            points="outliers")
+    fig_price_dist.update_layout(xaxis={'categoryorder':'total descending'})
+    st.plotly_chart(fig_price_dist, use_container_width=True)
+
+with tab6:
+    st.header("📦 Ketersediaan Stok")
+    df_combined_tab6 = pd.concat([st.session_state.df_dbklik, st.session_state.df_competitors], ignore_index=True)
+    
+    st.subheader("Perbandingan Stok 'Tersedia' vs 'Habis' per Toko")
+    
+    # Hitung status stok per toko
+    stock_status = df_combined_tab6.groupby(['TOKO', 'STATUS']).size().reset_index(name='Jumlah')
+    
+    # Buat bar chart
+    fig_stock = px.bar(stock_status, x='TOKO', y='Jumlah', color='STATUS',
+                       title="Jumlah Produk Berdasarkan Status Ketersediaan",
+                       labels={'TOKO': 'Toko', 'Jumlah': 'Jumlah Produk'},
+                       barmode='group',
+                       color_discrete_map={'Tersedia': 'green', 'Habis': 'red'})
+    fig_stock.update_layout(xaxis={'categoryorder':'total descending'})
+    st.plotly_chart(fig_stock, use_container_width=True)
 
