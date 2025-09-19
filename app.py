@@ -86,7 +86,7 @@ def load_data_from_gsheets(spreadsheet_id):
         # Pra-pemrosesan data
         df_combined.rename(columns={'NAMA': 'Nama Produk'}, inplace=True)
         df_combined['HARGA'] = pd.to_numeric(df_combined['HARGA'], errors='coerce')
-        df_combined['Terjual/Bln'] = pd.to_numeric(df_combined['Terjual/Bln'], errors='coerce')
+        df_combined['TERJUAL/BLN'] = pd.to_numeric(df_combined['TERJUAL/BLN'], errors='coerce')
         df_combined.dropna(subset=['HARGA', 'Nama Produk', 'Brand'], inplace=True)
         df_combined['TANGGAL'] = pd.to_datetime(df_combined['TANGGAL'], errors='coerce')
         df_combined['Minggu'] = df_combined['TANGGAL'].dt.strftime('%Y-%U')
@@ -308,8 +308,8 @@ if df_all is not None and not df_all.empty:
         
         if selected_brand_tren:
             df_tren = df_all[df_all['Brand'] == selected_brand_tren]
-            tren_penjualan = df_tren.groupby('Minggu')['Terjual/Bln'].sum().reset_index()
-            fig_tren = px.line(tren_penjualan, x='Minggu', y='Terjual/Bln', title=f'Tren Penjualan Mingguan untuk Brand: {selected_brand_tren}', markers=True)
+            tren_penjualan = df_tren.groupby('Minggu')['TERJUAL/BLN'].sum().reset_index()
+            fig_tren = px.line(tren_penjualan, x='Minggu', y='TERJUAL/BLN', title=f'Tren Penjualan Mingguan untuk Brand: {selected_brand_tren}', markers=True)
             st.plotly_chart(fig_tren, use_container_width=True)
 
 
@@ -344,5 +344,6 @@ if df_all is not None and not df_all.empty:
 
 else:
     st.error("Tidak dapat memuat data. Periksa koneksi atau konfigurasi Google Sheets Anda.")
+
 
 
