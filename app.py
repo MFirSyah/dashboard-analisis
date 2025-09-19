@@ -6,6 +6,7 @@
 #  2. Metode otentikasi gspread diperbarui untuk memperbaiki error '_auth_request'.
 #  3. Tampilan status proses dibuat lebih detail dan informatif.
 #  4. Peringatan format tanggal (UserWarning) telah diperbaiki.
+#  5. Proses penulisan SBERT diubah menjadi sistem batch untuk efisiensi.
 # ===================================================================================
 
 # ===================================================================================
@@ -22,7 +23,6 @@ import numpy as np
 # Library ML/AI
 from sentence_transformers import SentenceTransformer, util
 import torch
-from google.oauth2.service_account import Credentials
 
 
 # ===================================================================================
@@ -44,13 +44,12 @@ def get_gspread_client():
     """Membuat dan mengembalikan client gspread yang diautentikasi menggunakan metode terbaru."""
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"  # opsional, kalau mau akses Drive juga
     ]
     creds_dict = {
         "type": st.secrets["gcp_type"],
         "project_id": st.secrets["gcp_project_id"],
         "private_key_id": st.secrets["gcp_private_key_id"],
-        "private_key": st.secrets["gcp_private_key"].replace("\\n", "\n"),  # 🔑 penting untuk format key
+        "private_key": st.secrets["gcp_private_key"],
         "client_email": st.secrets["gcp_client_email"],
         "client_id": st.secrets["gcp_client_id"],
         "auth_uri": st.secrets["gcp_auth_uri"],
@@ -58,9 +57,8 @@ def get_gspread_client():
         "auth_provider_x509_cert_url": st.secrets["gcp_auth_provider_x509_cert_url"],
         "client_x509_cert_url": st.secrets["gcp_client_x509_cert_url"]
     }
-
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    return gspread.authorize(creds)
+    # Menggunakan metode otentikasi yang direkomendasikan gspread v5+
+    return gspread.service_account_from_dict(creds_dict, scopes=scopes)
 
 # --- FUNGSI UNTUK MEMBACA WORKSHEET MENJADI DATAFRAME ---
 def get_df_from_ws(worksheet):
@@ -134,10 +132,10 @@ def load_sbert_model():
     """Memuat model SentenceTransformer dan menyimpannya di cache."""
     return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
     
-# --- FUNGSI UTAMA UNTUK ANALISIS SBERT (DENGAN STATUS DETAIL) ---
+# --- FUNGSI UTAMA UNTUK ANALISIS SBERT (DENGAN PENULISAN BATCH) ---
 def run_sbert_analysis(ss, df_dbklik, df_competitors):
     """
-    Menjalankan analisis SBERT dengan tampilan status proses yang lengkap.
+    Menjalankan analisis SBERT dan menulis hasilnya ke GSheets dalam bentuk batch.
     """
     status_placeholder = st.empty()
     
@@ -177,10 +175,13 @@ def run_sbert_analysis(ss, df_dbklik, df_competitors):
     progress_bar = st.progress(0, text="Menganalisis produk...")
     total_products = len(df_dbklik_filtered)
     
+    # PERUBAHAN: Logika Batch
+    batch_size = 50  # Tulis ke Gsheet setiap 50 produk DB Klik diproses
+    results_batch = [] # List untuk menampung hasil sementara
+
     for i, (index, row) in enumerate(df_dbklik_filtered.iterrows()):
         product_name_dbklik = row['NAMA']
         product_brand = row['BRAND']
-        rows_to_write = []
         
         if product_brand in competitor_embeddings_by_brand:
             competitor_products = df_competitors_filtered[df_competitors_filtered['BRAND'] == product_brand]
@@ -192,22 +193,21 @@ def run_sbert_analysis(ss, df_dbklik, df_competitors):
                 if score.item() > 0.85:
                     match_row = competitor_products.iloc[idx.item()]
                     new_row = [
-                        datetime.now().strftime('%Y-%m-%d'),
-                        row['NAMA'],
-                        row.get('SKU', 'N/A'),
-                        row['HARGA'],
-                        match_row['NAMA'],
-                        match_row['HARGA'],
-                        match_row['TOKO'],
-                        f"{score.item() * 100:.2f}",
-                        row['BRAND']
+                        datetime.now().strftime('%Y-m-%d'),
+                        row['NAMA'], row.get('SKU', 'N/A'), row['HARGA'],
+                        match_row['NAMA'], match_row['HARGA'], match_row['TOKO'],
+                        f"{score.item() * 100:.2f}", row['BRAND']
                     ]
-                    rows_to_write.append(new_row)
+                    results_batch.append(new_row)
 
-        if rows_to_write:
-            worksheet.append_rows(rows_to_write, value_input_option='USER_ENTERED')
-            
         progress_bar.progress((i + 1) / total_products, text=f"Menganalisis produk: {i+1}/{total_products}")
+
+        # Tulis batch ke Gsheet jika sudah mencapai ukuran batch ATAU jika ini adalah item terakhir
+        if len(results_batch) >= batch_size or (i + 1) == total_products:
+            if results_batch: # Pastikan batch tidak kosong
+                st.text(f"   - Menulis {len(results_batch)} hasil ke Google Sheets...")
+                worksheet.append_rows(results_batch, value_input_option='USER_ENTERED')
+                results_batch = [] # Kosongkan batch setelah ditulis
 
     progress_bar.empty()
     status_placeholder.success("✅ Analisis SBERT selesai! Semua hasil telah ditulis ke Google Sheets.")
@@ -389,5 +389,4 @@ with tab6:
     fig_stock = px.bar(stock_status, x='TOKO', y='JUMLAH', color='STATUS', title="Jumlah Produk Berdasarkan Status Ketersediaan", labels={'TOKO': 'Toko', 'JUMLAH': 'Jumlah Produk'}, barmode='group', color_discrete_map={'Tersedia': 'green', 'Habis': 'red'})
     fig_stock.update_layout(xaxis={'categoryorder':'total descending'})
     st.plotly_chart(fig_stock, use_container_width=True)
-
 
