@@ -87,7 +87,7 @@ def load_data_from_gsheets(spreadsheet_id):
         df_combined.rename(columns={'NAMA': 'Nama Produk'}, inplace=True)
         df_combined['HARGA'] = pd.to_numeric(df_combined['HARGA'], errors='coerce')
         df_combined['TERJUAL/BLN'] = pd.to_numeric(df_combined['TERJUAL/BLN'], errors='coerce')
-        df_combined.dropna(subset=['HARGA', 'Nama Produk', 'Brand'], inplace=True)
+        df_combined.dropna(subset=['HARGA', 'Nama Produk', 'BRAND'], inplace=True)
         df_combined['TANGGAL'] = pd.to_datetime(df_combined['TANGGAL'], errors='coerce')
         df_combined['Minggu'] = df_combined['TANGGAL'].dt.strftime('%Y-%U')
         
@@ -125,10 +125,10 @@ def run_sbert_analysis(df_all, model):
     # Iterasi per produk DB Klik
     for i, row_dbklik in df_dbklik.iterrows():
         nama_dbklik = row_dbklik['Nama Produk']
-        brand_dbklik = row_dbklik['Brand']
+        BRAND_dbklik = row_dbklik['BRAND']
         
-        # Filter cepat berdasarkan brand
-        df_candidates = df_kompetitor[df_kompetitor['Brand'] == brand_dbklik]
+        # Filter cepat berdasarkan BRAND
+        df_candidates = df_kompetitor[df_kompetitor['BRAND'] == BRAND_dbklik]
         
         if not df_candidates.empty:
             candidate_names = df_candidates['Nama Produk'].tolist()
@@ -150,7 +150,7 @@ def run_sbert_analysis(df_all, model):
                     all_matches.append({
                         'Nama Produk DBKlik': nama_dbklik,
                         'HARGA DBKlik': row_dbklik['HARGA'],
-                        'Brand DBKlik': brand_dbklik,
+                        'BRAND DBKlik': BRAND_dbklik,
                         'Nama Produk Kompetitor': match['Nama Produk'],
                         'HARGA Kompetitor': match['HARGA'],
                         'Toko Kompetitor': match['Toko'],
@@ -267,7 +267,7 @@ if df_all is not None and not df_all.empty:
 
                 st.subheader(f"Hasil Perbandingan untuk: **{selected_product}**")
                 col1, col2 = st.columns(2)
-                col1.metric("Brand", product_info['Brand'])
+                col1.metric("BRAND", product_info['BRAND'])
                 col2.metric("HARGA di DB Klik", f"Rp {HARGA_dbklik:,.0f}")
                 
                 results = df_hasil_sbert_cache[df_hasil_sbert_cache['Nama Produk DBKlik'] == selected_product].copy()
@@ -303,13 +303,13 @@ if df_all is not None and not df_all.empty:
         # ... (Kode Analisis Tren Anda tetap di sini, tidak diubah) ...
         # (Kode dari file asli Anda untuk tab3 akan ditempatkan di sini)
         st.header("Analisis Tren Penjualan")
-        brand_list = sorted(df_all['Brand'].unique())
-        selected_brand_tren = st.selectbox("Pilih Brand untuk melihat tren:", brand_list)
+        BRAND_list = sorted(df_all['BRAND'].unique())
+        selected_BRAND_tren = st.selectbox("Pilih BRAND untuk melihat tren:", BRAND_list)
         
-        if selected_brand_tren:
-            df_tren = df_all[df_all['Brand'] == selected_brand_tren]
+        if selected_BRAND_tren:
+            df_tren = df_all[df_all['BRAND'] == selected_BRAND_tren]
             tren_penjualan = df_tren.groupby('Minggu')['TERJUAL/BLN'].sum().reset_index()
-            fig_tren = px.line(tren_penjualan, x='Minggu', y='TERJUAL/BLN', title=f'Tren Penjualan Mingguan untuk Brand: {selected_brand_tren}', markers=True)
+            fig_tren = px.line(tren_penjualan, x='Minggu', y='TERJUAL/BLN', title=f'Tren Penjualan Mingguan untuk BRAND: {selected_BRAND_tren}', markers=True)
             st.plotly_chart(fig_tren, use_container_width=True)
 
 
@@ -340,10 +340,11 @@ if df_all is not None and not df_all.empty:
                         st.write(f"Ditemukan **{len(new_products)}** produk baru:")
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)].copy()
                         new_products_df['HARGA_fmt'] = new_products_df['HARGA'].apply(lambda x: f"Rp {x:,.0f}")
-                        st.dataframe(new_products_df[['Nama Produk', 'HARGA_fmt', 'Brand']], use_container_width=True)
+                        st.dataframe(new_products_df[['Nama Produk', 'HARGA_fmt', 'BRAND']], use_container_width=True)
 
 else:
     st.error("Tidak dapat memuat data. Periksa koneksi atau konfigurasi Google Sheets Anda.")
+
 
 
 
