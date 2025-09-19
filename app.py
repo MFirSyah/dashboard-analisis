@@ -85,9 +85,9 @@ def load_data_from_gsheets(spreadsheet_id):
 
         # Pra-pemrosesan data
         df_combined.rename(columns={'NAMA': 'Nama Produk'}, inplace=True)
-        df_combined['Harga'] = pd.to_numeric(df_combined['Harga'], errors='coerce')
+        df_combined['HARGA'] = pd.to_numeric(df_combined['HARGA'], errors='coerce')
         df_combined['Terjual/Bln'] = pd.to_numeric(df_combined['Terjual/Bln'], errors='coerce')
-        df_combined.dropna(subset=['Harga', 'Nama Produk', 'Brand'], inplace=True)
+        df_combined.dropna(subset=['HARGA', 'Nama Produk', 'Brand'], inplace=True)
         df_combined['TANGGAL'] = pd.to_datetime(df_combined['TANGGAL'], errors='coerce')
         df_combined['Minggu'] = df_combined['TANGGAL'].dt.strftime('%Y-%U')
         
@@ -149,13 +149,13 @@ def run_sbert_analysis(df_all, model):
                     match = df_candidates.iloc[idx.item()]
                     all_matches.append({
                         'Nama Produk DBKlik': nama_dbklik,
-                        'Harga DBKlik': row_dbklik['Harga'],
+                        'HARGA DBKlik': row_dbklik['HARGA'],
                         'Brand DBKlik': brand_dbklik,
                         'Nama Produk Kompetitor': match['Nama Produk'],
-                        'Harga Kompetitor': match['Harga'],
+                        'HARGA Kompetitor': match['HARGA'],
                         'Toko Kompetitor': match['Toko'],
                         'Skor Kemiripan': score.item(),
-                        'Tanggal Analisis': pd.Timestamp.now().strftime('%Y-%m-%d')
+                        'TANGGAL Analisis': pd.Timestamp.now().strftime('%Y-%m-%d')
                     })
         
         # Update progress bar
@@ -199,13 +199,13 @@ if df_all is not None and not df_all.empty:
     
     # --- Logika Pengecekan & Pembaruan Otomatis SBERT ---
     df_kompetitor_all = df_all[df_all['Toko'] != 'DB KLIK']
-    tanggal_terbaru_kompetitor = df_kompetitor_all['TANGGAL'].max().strftime('%Y-%m-%d')
+    TANGGAL_terbaru_kompetitor = df_kompetitor_all['TANGGAL'].max().strftime('%Y-%m-%d')
     
-    tanggal_analisis_terakhir = "1970-01-01" # Default tanggal lama
-    if not df_hasil_sbert_cache.empty and 'Tanggal Analisis' in df_hasil_sbert_cache.columns:
-        tanggal_analisis_terakhir = pd.to_datetime(df_hasil_sbert_cache['Tanggal Analisis']).max().strftime('%Y-%m-%d')
+    TANGGAL_analisis_terakhir = "1970-01-01" # Default TANGGAL lama
+    if not df_hasil_sbert_cache.empty and 'TANGGAL Analisis' in df_hasil_sbert_cache.columns:
+        TANGGAL_analisis_terakhir = pd.to_datetime(df_hasil_sbert_cache['TANGGAL Analisis']).max().strftime('%Y-%m-%d')
 
-    needs_update = tanggal_terbaru_kompetitor > tanggal_analisis_terakhir
+    needs_update = TANGGAL_terbaru_kompetitor > TANGGAL_analisis_terakhir
     
     st.sidebar.title("⚙️ Opsi Analisis")
     if st.sidebar.button("Jalankan Ulang Analisis SBERT Manual"):
@@ -213,7 +213,7 @@ if df_all is not None and not df_all.empty:
         st.sidebar.info("Tombol manual ditekan, analisis akan dijalankan ulang.")
 
     if needs_update:
-        st.warning(f"Data kompetitor terdeteksi baru ({tanggal_terbaru_kompetitor}) atau pembaruan manual diminta. Menjalankan analisis SBERT...")
+        st.warning(f"Data kompetitor terdeteksi baru ({TANGGAL_terbaru_kompetitor}) atau pembaruan manual diminta. Menjalankan analisis SBERT...")
         df_hasil_sbert_baru = run_sbert_analysis(df_all, model)
         if not df_hasil_sbert_baru.empty:
             update_gsheet_with_results(spreadsheet, "hasil_fuzzy", df_hasil_sbert_baru)
@@ -221,10 +221,10 @@ if df_all is not None and not df_all.empty:
             _ , df_hasil_sbert_cache, _, _ = load_data_from_gsheets(spreadsheet_id)
             st.cache_data.clear() # Hapus cache agar data baru terbaca
     else:
-        st.success(f"Data perbandingan produk sudah yang terbaru (Analisis terakhir: {tanggal_analisis_terakhir}).")
+        st.success(f"Data perbandingan produk sudah yang terbaru (Analisis terakhir: {TANGGAL_analisis_terakhir}).")
     
     # --- Tab Utama ---
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard Utama", "⚖️ Perbandingan Harga (SBERT)", "📈 Analisis Tren", "🆕 Deteksi Produk Baru"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard Utama", "⚖️ Perbandingan HARGA (SBERT)", "📈 Analisis Tren", "🆕 Deteksi Produk Baru"])
 
     with tab1:
         st.header("Ringkasan Umum")
@@ -232,12 +232,12 @@ if df_all is not None and not df_all.empty:
         # (Kode dari file asli Anda untuk tab1 akan ditempatkan di sini)
         total_produk = len(df_all)
         total_toko = df_all['Toko'].nunique()
-        rata_harga = df_all['Harga'].mean()
+        rata_HARGA = df_all['HARGA'].mean()
 
         col1, col2, col3 = st.columns(3)
         col1.metric("Total Produk Terdata", f"{total_produk:,}")
         col2.metric("Jumlah Toko", total_toko)
-        col3.metric("Rata-rata Harga Produk", f"Rp {rata_harga:,.0f}")
+        col3.metric("Rata-rata HARGA Produk", f"Rp {rata_HARGA:,.0f}")
         
         st.subheader("Distribusi Produk per Toko")
         produk_per_toko = df_all['Toko'].value_counts().reset_index()
@@ -246,7 +246,7 @@ if df_all is not None and not df_all.empty:
         st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
-        st.header("⚖️ Perbandingan Harga Produk dengan Kompetitor (Metode SBERT)")
+        st.header("⚖️ Perbandingan HARGA Produk dengan Kompetitor (Metode SBERT)")
         
         if df_hasil_sbert_cache.empty:
             st.warning("Data hasil perbandingan belum tersedia. Jalankan analisis SBERT terlebih dahulu.")
@@ -263,18 +263,18 @@ if df_all is not None and not df_all.empty:
 
             if selected_product:
                 product_info = df_dbklik_list[df_dbklik_list['Nama Produk'] == selected_product].iloc[0]
-                harga_dbklik = product_info['Harga']
+                HARGA_dbklik = product_info['HARGA']
 
                 st.subheader(f"Hasil Perbandingan untuk: **{selected_product}**")
                 col1, col2 = st.columns(2)
                 col1.metric("Brand", product_info['Brand'])
-                col2.metric("Harga di DB Klik", f"Rp {harga_dbklik:,.0f}")
+                col2.metric("HARGA di DB Klik", f"Rp {HARGA_dbklik:,.0f}")
                 
                 results = df_hasil_sbert_cache[df_hasil_sbert_cache['Nama Produk DBKlik'] == selected_product].copy()
                 
                 if not results.empty:
-                    results['Harga Kompetitor'] = pd.to_numeric(results['Harga Kompetitor'])
-                    results['Selisih Harga'] = results['Harga Kompetitor'] - harga_dbklik
+                    results['HARGA Kompetitor'] = pd.to_numeric(results['HARGA Kompetitor'])
+                    results['Selisih HARGA'] = results['HARGA Kompetitor'] - HARGA_dbklik
                     
                     def format_selisih(selisih):
                         if selisih > 0:
@@ -284,14 +284,14 @@ if df_all is not None and not df_all.empty:
                         else:
                             return "Sama"
                     
-                    results['Keterangan'] = results['Selisih Harga'].apply(format_selisih)
-                    results['Harga Kompetitor'] = results['Harga Kompetitor'].apply(lambda x: f"Rp {x:,.0f}")
+                    results['Keterangan'] = results['Selisih HARGA'].apply(format_selisih)
+                    results['HARGA Kompetitor'] = results['HARGA Kompetitor'].apply(lambda x: f"Rp {x:,.0f}")
                     results['Skor Kemiripan'] = (pd.to_numeric(results['Skor Kemiripan']) * 100).apply(lambda x: f"{x:.2f}%")
 
                     st.dataframe(results[[
                         'Toko Kompetitor', 
                         'Nama Produk Kompetitor', 
-                        'Harga Kompetitor', 
+                        'HARGA Kompetitor', 
                         'Keterangan',
                         'Skor Kemiripan'
                     ]], use_container_width=True)
@@ -339,9 +339,10 @@ if df_all is not None and not df_all.empty:
                     else:
                         st.write(f"Ditemukan **{len(new_products)}** produk baru:")
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)].copy()
-                        new_products_df['Harga_fmt'] = new_products_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
-                        st.dataframe(new_products_df[['Nama Produk', 'Harga_fmt', 'Brand']], use_container_width=True)
+                        new_products_df['HARGA_fmt'] = new_products_df['HARGA'].apply(lambda x: f"Rp {x:,.0f}")
+                        st.dataframe(new_products_df[['Nama Produk', 'HARGA_fmt', 'Brand']], use_container_width=True)
 
 else:
     st.error("Tidak dapat memuat data. Periksa koneksi atau konfigurasi Google Sheets Anda.")
+
 
