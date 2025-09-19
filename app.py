@@ -1,9 +1,9 @@
 # ===================================================================================
-#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI SBERT
+#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI OPTIMIZED
 #  Dibuat oleh: Firman & Asisten AI Gemini
-#  Metode Koneksi: Aman & Stabil (gspread + st.secrets individual)
-#  Peningkatan: Menggunakan Sentence-Transformers (SBERT) untuk perbandingan
-#               produk yang akurat dan menyimpan hasil di Google Sheets.
+#  Metode Koneksi: Aman & Stabil (gspread + st.secrets)
+#  Peningkatan: Analisis SBERT sekarang menulis hasil langsung ke Google Sheets
+#               untuk mengurangi penggunaan memori dan mencegah crash.
 # ===================================================================================
 
 # ===================================================================================
@@ -14,337 +14,360 @@ import pandas as pd
 import plotly.express as px
 import re
 import gspread
-from gspread_dataframe import set_with_dataframe
+from gspread_dataframe import get_as_dataframe, set_with_dataframe
+from google.oauth2.service_account import Credentials
 from sentence_transformers import SentenceTransformer, util
 import torch
+from datetime import datetime
+import numpy as np
 
 # ===================================================================================
 # KONFIGURASI HALAMAN
 # ===================================================================================
-st.set_page_config(layout="wide", page_title="Dashboard Analisis DB Klik")
+st.set_page_config(layout="wide", page_title="Dashboard Analisis")
 
 # ===================================================================================
 # FUNGSI-FUNGSI UTAMA
 # ===================================================================================
 
-@st.cache_resource(show_spinner="Memuat model AI untuk analisis teks...")
-def load_sbert_model():
-    """
-    Memuat model Sentence Transformer. Di-cache agar hanya dimuat sekali.
-    """
-    return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+# --- FUNGSI UNTUK KONEKSI GOOGLE SHEETS ---
+def get_gspread_client():
+    """Membuat dan mengembalikan client gspread yang diautentikasi."""
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+    ]
+    creds_dict = {
+        "type": st.secrets["gcp_type"],
+        "project_id": st.secrets["gcp_project_id"],
+        "private_key_id": st.secrets["gcp_private_key_id"],
+        "private_key": st.secrets["gcp_private_key"],
+        "client_email": st.secrets["gcp_client_email"],
+        "client_id": st.secrets["gcp_client_id"],
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": st.secrets["gcp_auth_provider_x509_cert_url"],
+        "client_x509_cert_url": st.secrets["gcp_client_x509_cert_url"]
+    }
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    return gspread.authorize(creds)
 
+# --- FUNGSI UNTUK MEMBACA WORKSHEET MENJADI DATAFRAME ---
+def get_df_from_ws(worksheet):
+    """Membaca data dari worksheet dan mengembalikannya sebagai DataFrame."""
+    return get_as_dataframe(worksheet, evaluate_formulas=True).dropna(how="all")
+
+# --- FUNGSI UNTUK MEMUAT SEMUA DATA MENTAH ---
 @st.cache_data(ttl=600, show_spinner="Mengambil data terbaru dari Google Sheets...")
-def load_data_from_gsheets(spreadsheet_id):
-    """
-    Fungsi untuk memuat dan memproses data dari Google Sheets.
-    """
+def load_all_data():
+    """Memuat semua data dari semua worksheet yang relevan di Google Sheets."""
     try:
-        creds_dict = {
-            "type": st.secrets["gcp_type"],
-            "project_id": st.secrets["gcp_project_id"],
-            "private_key_id": st.secrets["gcp_private_key_id"],
-            "private_key": st.secrets["gcp_private_key"],
-            "client_email": st.secrets["gcp_client_email"],
-            "client_id": st.secrets["gcp_client_id"],
-            "auth_uri": st.secrets["gcp_auth_uri"],
-            "token_uri": st.secrets["gcp_token_uri"],
-            "auth_provider_x509_cert_url": st.secrets["gcp_auth_provider_x509_cert_url"],
-            "client_x509_cert_url": st.secrets["gcp_client_x509_cert_url"]
-        }
+        gc = get_gspread_client()
+        spreadsheet = gc.open_by_key(st.secrets["gcp_spreadsheet_id"])
         
-        sa = gspread.service_account_from_dict(creds_dict)
-        spreadsheet = sa.open_by_key(spreadsheet_id)
-        
-        all_data = []
-        
-        # Daftar worksheet kompetitor dan DB Klik (SEKARANG TERMASUK LOGITECH)
-        worksheets_to_load = [ws.title for ws in spreadsheet.worksheets() if "REKAP" in ws.title]
+        all_dfs = []
+        excluded_sheets = ['DATABASE', 'hasil_fuzzy']
+        worksheets = spreadsheet.worksheets()
 
-        for sheet_name in worksheets_to_load:
-            worksheet = spreadsheet.worksheet(sheet_name)
-            df = pd.DataFrame(worksheet.get_all_records())
-            
-            # Ekstrak nama toko dari nama worksheet
-            toko_name = sheet_name.split(' - ')[0].strip()
-            df['Toko'] = toko_name
-            
-            status = "Tersedia" if "READY" in sheet_name or "RE" in sheet_name else "Habis"
-            df['Status'] = status
-            
-            all_data.append(df)
-            
-        df_combined = pd.concat(all_data, ignore_index=True)
+        for ws in worksheets:
+            if ws.title not in excluded_sheets:
+                df = get_df_from_ws(ws)
+                toko_status = ws.title.split(' - REKAP - ')
+                if len(toko_status) == 2:
+                    df['TOKO'] = toko_status[0].strip()
+                    df['STATUS'] = 'Tersedia' if toko_status[1].strip() in ['RE', 'READY'] else 'Habis'
+                    all_dfs.append(df)
+
+        if not all_dfs:
+            st.error("Tidak ada data yang dapat dimuat. Pastikan nama worksheet sudah benar.")
+            return None, None, None
+
+        full_df = pd.concat(all_dfs, ignore_index=True)
+        full_df['TANGGAL'] = pd.to_datetime(full_df['TANGGAL'], errors='coerce')
+        full_df = full_df.dropna(subset=['TANGGAL'])
         
-        # Coba muat hasil SBERT yang sudah ada
+        # Pisahkan data DB Klik dan Kompetitor
+        df_dbklik = full_df[full_df['TOKO'] == 'DB KLIK'].copy()
+        df_competitors = full_df[full_df['TOKO'] != 'DB KLIK'].copy()
+
+        # Coba muat hasil fuzzy yang sudah ada
         try:
             hasil_fuzzy_ws = spreadsheet.worksheet("hasil_fuzzy")
-            df_hasil_sbert = pd.DataFrame(hasil_fuzzy_ws.get_all_records())
+            df_hasil_sbert = get_df_from_ws(hasil_fuzzy_ws)
         except gspread.exceptions.WorksheetNotFound:
             df_hasil_sbert = pd.DataFrame() # Buat dataframe kosong jika sheet tidak ada
 
-        # Pra-pemrosesan data
-        df_combined.rename(columns={'NAMA': 'Nama Produk'}, inplace=True)
-        df_combined['HARGA'] = pd.to_numeric(df_combined['HARGA'], errors='coerce')
-        df_combined['TERJUAL/BLN'] = pd.to_numeric(df_combined['TERJUAL/BLN'], errors='coerce')
-        df_combined.dropna(subset=['HARGA', 'Nama Produk', 'BRAND'], inplace=True)
-        df_combined['TANGGAL'] = pd.to_datetime(df_combined['TANGGAL'], errors='coerce')
-        df_combined['Minggu'] = df_combined['TANGGAL'].dt.strftime('%Y-%U')
-        
-        return df_combined, df_hasil_sbert, sa, spreadsheet
-        
+        return df_dbklik, df_competitors, df_hasil_sbert, spreadsheet
+
     except Exception as e:
         st.error(f"Gagal memuat data dari Google Sheets: {e}")
-        return pd.DataFrame(), pd.DataFrame(), None, None
+        return None, None, None, None
 
-def run_sbert_analysis(df_all, model):
+# --- FUNGSI UNTUK MEMUAT MODEL SBERT (DENGAN CACHE) ---
+@st.cache_resource(show_spinner="Memuat model AI untuk analisis...")
+def load_sbert_model():
+    """Memuat model SentenceTransformer dan menyimpannya di cache."""
+    return SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+    
+# --- FUNGSI UTAMA UNTUK ANALISIS SBERT ---
+def run_sbert_analysis(ss, df_dbklik, df_competitors):
     """
-    Menjalankan analisis SBERT untuk membandingkan produk DB Klik dengan kompetitor.
+    Menjalankan analisis kemiripan produk menggunakan SBERT.
+    Hasilnya ditulis langsung ke Google Sheets per baris untuk menghemat memori.
     """
-    st.info("Memulai analisis SBERT. Proses ini mungkin memakan beberapa menit...")
+    model = load_sbert_model()
     
-    df_dbklik = df_all[df_all['Toko'] == 'DB KLIK'].copy()
-    df_kompetitor = df_all[df_all['Toko'] != 'DB KLIK'].copy()
-
-    # Pastikan nama produk unik untuk efisiensi
-    df_dbklik.drop_duplicates(subset=['Nama Produk'], inplace=True)
-    df_kompetitor.drop_duplicates(subset=['Nama Produk', 'Toko'], inplace=True)
-
-    dbklik_names = df_dbklik['Nama Produk'].tolist()
-    kompetitor_names = df_kompetitor['Nama Produk'].tolist()
-
-    st.write("Membuat 'kamus' produk kompetitor...")
-    # Buat embeddings untuk semua produk kompetitor sekali jalan
-    kompetitor_embeddings = model.encode(kompetitor_names, convert_to_tensor=True, show_progress_bar=True)
+    st.info("Memulai analisis SBERT. Proses ini mungkin memakan waktu beberapa menit...")
     
-    all_matches = []
-    
-    progress_bar = st.progress(0, text="Menganalisis produk DB Klik...")
-    total_products = len(df_dbklik)
+    # Dapatkan worksheet, buat jika belum ada
+    try:
+        worksheet = ss.worksheet("hasil_fuzzy")
+    except gspread.exceptions.WorksheetNotFound:
+        worksheet = ss.add_worksheet(title="hasil_fuzzy", rows="1", cols="9")
+        st.success("Worksheet 'hasil_fuzzy' baru telah dibuat.")
 
-    # Iterasi per produk DB Klik
-    for i, row_dbklik in df_dbklik.iterrows():
-        nama_dbklik = row_dbklik['Nama Produk']
-        BRAND_dbklik = row_dbklik['BRAND']
+    # Kosongkan sheet dan tulis header baru
+    worksheet.clear()
+    header = [
+        'Tanggal Analisis', 'Produk DBKlik', 'SKU DBKlik', 'Harga DBKlik',
+        'Produk Kompetitor', 'Harga Kompetitor', 'Toko Kompetitor', 
+        'Skor Kemiripan (%)', 'Brand'
+    ]
+    worksheet.append_row(header, value_input_option='USER_ENTERED')
+    
+    # Persiapan data
+    df_dbklik_filtered = df_dbklik.dropna(subset=['NAMA', 'BRAND', 'Harga']).copy()
+    df_competitors_filtered = df_competitors.dropna(subset=['NAMA', 'BRAND', 'Harga']).copy()
+    
+    brands = df_dbklik_filtered['BRAND'].unique()
+    competitor_embeddings_by_brand = {}
+
+    # Buat embeddings untuk setiap brand kompetitor sekali saja
+    with st.spinner("Membuat 'kamus' produk kompetitor..."):
+        for brand in brands:
+            brand_products = df_competitors_filtered[df_competitors_filtered['BRAND'] == brand]['NAMA'].tolist()
+            if brand_products:
+                competitor_embeddings_by_brand[brand] = model.encode(brand_products, convert_to_tensor=True)
+
+    # Setup progress bar
+    progress_bar = st.progress(0)
+    total_products = len(df_dbklik_filtered)
+    
+    # Loop utama untuk setiap produk di DB Klik
+    for index, row in df_dbklik_filtered.iterrows():
+        product_name_dbklik = row['NAMA']
+        product_brand = row['BRAND']
         
-        # Filter cepat berdasarkan BRAND
-        df_candidates = df_kompetitor[df_kompetitor['BRAND'] == BRAND_dbklik]
+        # Inisialisasi list untuk menampung baris yang akan ditulis untuk produk ini
+        rows_to_write = []
         
-        if not df_candidates.empty:
-            candidate_names = df_candidates['Nama Produk'].tolist()
+        # Lakukan perbandingan hanya jika ada produk kompetitor dengan brand yang sama
+        if product_brand in competitor_embeddings_by_brand:
+            competitor_products = df_competitors_filtered[df_competitors_filtered['BRAND'] == product_brand]
             
-            # Ambil embeddings yang relevan
-            indices = [kompetitor_names.index(name) for name in candidate_names]
-            candidate_embeddings = kompetitor_embeddings[indices]
+            # Encode produk DB Klik saat ini
+            embedding_dbklik = model.encode(product_name_dbklik, convert_to_tensor=True)
             
-            # Hitung kemiripan
-            query_embedding = model.encode(nama_dbklik, convert_to_tensor=True)
-            cos_scores = util.cos_sim(query_embedding, candidate_embeddings)[0]
+            # Hitung cosine similarity
+            cos_scores = util.cos_sim(embedding_dbklik, competitor_embeddings_by_brand[product_brand])[0]
+            top_results = torch.topk(cos_scores, k=min(5, len(cos_scores)))
             
-            # Cari skor tertinggi
-            top_results = torch.topk(cos_scores, k=min(3, len(cos_scores)))
-            
+            # Proses hasil
             for score, idx in zip(top_results[0], top_results[1]):
-                if score.item() > 0.85: # Ambang batas kemiripan
-                    match = df_candidates.iloc[idx.item()]
-                    all_matches.append({
-                        'Nama Produk DBKlik': nama_dbklik,
-                        'HARGA DBKlik': row_dbklik['HARGA'],
-                        'BRAND DBKlik': BRAND_dbklik,
-                        'Nama Produk Kompetitor': match['Nama Produk'],
-                        'HARGA Kompetitor': match['HARGA'],
-                        'Toko Kompetitor': match['Toko'],
-                        'Skor Kemiripan': score.item(),
-                        'TANGGAL Analisis': pd.Timestamp.now().strftime('%Y-%m-%d')
-                    })
-        
+                if score.item() > 0.85: # Ambil yang skornya di atas 85%
+                    match_row = competitor_products.iloc[idx.item()]
+                    # Siapkan baris data sebagai list
+                    new_row = [
+                        datetime.now().strftime('%Y-%m-%d'),
+                        row['NAMA'],
+                        row.get('SKU', 'N/A'),
+                        row['Harga'],
+                        match_row['NAMA'],
+                        match_row['Harga'],
+                        match_row['TOKO'],
+                        f"{score.item() * 100:.2f}",
+                        row['BRAND']
+                    ]
+                    rows_to_write.append(new_row)
+
+        # Tulis hasil untuk produk ini ke spreadsheet jika ada yang cocok
+        if rows_to_write:
+            worksheet.append_rows(rows_to_write, value_input_option='USER_ENTERED')
+            
         # Update progress bar
-        progress_bar.progress((i + 1) / total_products, text=f"Menganalisis: {nama_dbklik[:50]}...")
+        progress_bar.progress((index + 1) / total_products)
 
     progress_bar.empty()
-    st.success("Analisis SBERT selesai!")
-    return pd.DataFrame(all_matches)
-
-def update_gsheet_with_results(spreadsheet, sheet_name, df_results):
-    """
-    Menulis ulang hasil analisis ke worksheet 'hasil_fuzzy'.
-    """
-    with st.spinner(f"Menyimpan {len(df_results)} hasil ke Google Sheets..."):
-        try:
-            worksheet = spreadsheet.worksheet(sheet_name)
-            worksheet.clear()
-            set_with_dataframe(worksheet, df_results)
-            st.success(f"Berhasil menyimpan hasil ke worksheet '{sheet_name}'.")
-        except gspread.exceptions.WorksheetNotFound:
-            worksheet = spreadsheet.add_worksheet(title=sheet_name, rows="1", cols="1")
-            set_with_dataframe(worksheet, df_results)
-            st.success(f"Worksheet '{sheet_name}' baru telah dibuat dan diisi data.")
-        except Exception as e:
-            st.error(f"Gagal menyimpan hasil ke Google Sheets: {e}")
+    st.success("Analisis SBERT selesai dan semua hasil telah ditulis ke Google Sheets.")
+    
+    # Muat ulang data hasil dari sheet untuk ditampilkan di UI
+    df_hasil_sbert_updated = get_df_from_ws(worksheet)
+    return df_hasil_sbert_updated
 
 # ===================================================================================
-# MAIN SCRIPT
+# INISIALISASI APLIKASI
 # ===================================================================================
-# --- Judul Dashboard ---
-st.title("📊 Dashboard Analisis Penjualan & Kompetitor DB KLIK")
-st.markdown("Versi ini menggunakan **SBERT** untuk perbandingan produk yang lebih akurat.")
 
-# --- Load Data ---
-spreadsheet_id = st.secrets.get("gcp_spreadsheet_id", "1aIu4dy2Qk9pWsoD4nR1S-Yw2WwPT9yX1Bv-3j-zG-C4")
-df_all, df_hasil_sbert_cache, sa, spreadsheet = load_data_from_gsheets(spreadsheet_id)
-
-if df_all is not None and not df_all.empty:
-    
-    model = load_sbert_model() # Muat model AI
-    
-    # --- Logika Pengecekan & Pembaruan Otomatis SBERT ---
-    df_kompetitor_all = df_all[df_all['Toko'] != 'DB KLIK']
-    TANGGAL_terbaru_kompetitor = df_kompetitor_all['TANGGAL'].max().strftime('%Y-%m-%d')
-    
-    TANGGAL_analisis_terakhir = "1970-01-01" # Default TANGGAL lama
-    if not df_hasil_sbert_cache.empty and 'TANGGAL Analisis' in df_hasil_sbert_cache.columns:
-        TANGGAL_analisis_terakhir = pd.to_datetime(df_hasil_sbert_cache['TANGGAL Analisis']).max().strftime('%Y-%m-%d')
-
-    needs_update = TANGGAL_terbaru_kompetitor > TANGGAL_analisis_terakhir
-    
-    st.sidebar.title("⚙️ Opsi Analisis")
-    if st.sidebar.button("Jalankan Ulang Analisis SBERT Manual"):
-        needs_update = True
-        st.sidebar.info("Tombol manual ditekan, analisis akan dijalankan ulang.")
-
-    if needs_update:
-        st.warning(f"Data kompetitor terdeteksi baru ({TANGGAL_terbaru_kompetitor}) atau pembaruan manual diminta. Menjalankan analisis SBERT...")
-        df_hasil_sbert_baru = run_sbert_analysis(df_all, model)
-        if not df_hasil_sbert_baru.empty:
-            update_gsheet_with_results(spreadsheet, "hasil_fuzzy", df_hasil_sbert_baru)
-            # Muat ulang data hasil untuk memastikan state konsisten
-            _ , df_hasil_sbert_cache, _, _ = load_data_from_gsheets(spreadsheet_id)
-            st.cache_data.clear() # Hapus cache agar data baru terbaca
+# Muat semua data saat aplikasi pertama kali dijalankan
+if 'data_loaded' not in st.session_state:
+    df_dbklik, df_competitors, df_hasil_sbert, ss = load_all_data()
+    if df_dbklik is not None:
+        st.session_state.df_dbklik = df_dbklik
+        st.session_state.df_competitors = df_competitors
+        st.session_state.df_hasil_sbert = df_hasil_sbert
+        st.session_state.spreadsheet = ss
+        st.session_state.data_loaded = True
     else:
-        st.success(f"Data perbandingan produk sudah yang terbaru (Analisis terakhir: {TANGGAL_analisis_terakhir}).")
+        st.error("Tidak dapat memuat data. Periksa koneksi atau konfigurasi Google Sheets Anda.")
+        st.stop()
+
+# Cek apakah analisis SBERT perlu dijalankan secara otomatis
+if 'sbert_check_done' not in st.session_state:
+    st.session_state.sbert_check_done = True # Tandai agar tidak dicek berulang kali
     
-    # --- Tab Utama ---
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard Utama", "⚖️ Perbandingan HARGA (SBERT)", "📈 Analisis Tren", "🆕 Deteksi Produk Baru"])
-
-    with tab1:
-        st.header("Ringkasan Umum")
-        # ... (Kode Dashboard Utama Anda tetap di sini, tidak diubah) ...
-        # (Kode dari file asli Anda untuk tab1 akan ditempatkan di sini)
-        total_produk = len(df_all)
-        total_toko = df_all['Toko'].nunique()
-        rata_HARGA = df_all['HARGA'].mean()
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Produk Terdata", f"{total_produk:,}")
-        col2.metric("Jumlah Toko", total_toko)
-        col3.metric("Rata-rata HARGA Produk", f"Rp {rata_HARGA:,.0f}")
-        
-        st.subheader("Distribusi Produk per Toko")
-        produk_per_toko = df_all['Toko'].value_counts().reset_index()
-        produk_per_toko.columns = ['Toko', 'Jumlah Produk']
-        fig = px.bar(produk_per_toko, x='Toko', y='Jumlah Produk', title="Jumlah Produk per Toko", text_auto=True)
-        st.plotly_chart(fig, use_container_width=True)
-
-    with tab2:
-        st.header("⚖️ Perbandingan HARGA Produk dengan Kompetitor (Metode SBERT)")
-        
-        if df_hasil_sbert_cache.empty:
-            st.warning("Data hasil perbandingan belum tersedia. Jalankan analisis SBERT terlebih dahulu.")
-        else:
-            df_dbklik_list = df_all[df_all['Toko'] == 'DB KLIK'].sort_values('Nama Produk')
-            dbklik_product_list = df_dbklik_list['Nama Produk'].unique()
+    # Ambil tanggal terbaru dari data kompetitor
+    latest_competitor_date = st.session_state.df_competitors['TANGGAL'].max().strftime('%Y-%m-%d')
+    
+    # Ambil tanggal analisis terakhir dari hasil sbert
+    latest_analysis_date = "1970-01-01" # Tanggal default jika hasil kosong
+    if not st.session_state.df_hasil_sbert.empty and 'Tanggal Analisis' in st.session_state.df_hasil_sbert.columns:
+        # Konversi ke datetime untuk memastikan perbandingan benar
+        sbert_dates = pd.to_datetime(st.session_state.df_hasil_sbert['Tanggal Analisis'], errors='coerce')
+        if not sbert_dates.isnull().all():
+            latest_analysis_date = sbert_dates.max().strftime('%Y-%m-%d')
             
-            selected_product = st.selectbox(
-                "Pilih produk DB Klik untuk dibandingkan:",
-                options=dbklik_product_list,
-                index=None,
-                placeholder="Ketik untuk mencari produk..."
+    # Bandingkan tanggal
+    if latest_competitor_date > latest_analysis_date:
+        st.warning("Data kompetitor lebih baru dari analisis terakhir. Menjalankan analisis SBERT secara otomatis...")
+        with st.spinner("Mohon tunggu, proses otomatis sedang berjalan..."):
+            st.session_state.df_hasil_sbert = run_sbert_analysis(
+                st.session_state.spreadsheet,
+                st.session_state.df_dbklik,
+                st.session_state.df_competitors
             )
+        st.rerun()
 
-            if selected_product:
-                product_info = df_dbklik_list[df_dbklik_list['Nama Produk'] == selected_product].iloc[0]
-                HARGA_dbklik = product_info['HARGA']
+# ===================================================================================
+# TAMPILAN UI STREAMLIT
+# ===================================================================================
+st.title("📊 Dashboard Analisis Penjualan & Kompetitor")
 
-                st.subheader(f"Hasil Perbandingan untuk: **{selected_product}**")
-                col1, col2 = st.columns(2)
-                col1.metric("BRAND", product_info['BRAND'])
-                col2.metric("HARGA di DB Klik", f"Rp {HARGA_dbklik:,.0f}")
-                
-                results = df_hasil_sbert_cache[df_hasil_sbert_cache['Nama Produk DBKlik'] == selected_product].copy()
-                
-                if not results.empty:
-                    results['HARGA Kompetitor'] = pd.to_numeric(results['HARGA Kompetitor'])
-                    results['Selisih HARGA'] = results['HARGA Kompetitor'] - HARGA_dbklik
-                    
-                    def format_selisih(selisih):
-                        if selisih > 0:
-                            return f"Lebih Mahal Rp {selisih:,.0f}"
-                        elif selisih < 0:
-                            return f"Lebih Murah Rp {-selisih:,.0f}"
-                        else:
-                            return "Sama"
-                    
-                    results['Keterangan'] = results['Selisih HARGA'].apply(format_selisih)
-                    results['HARGA Kompetitor'] = results['HARGA Kompetitor'].apply(lambda x: f"Rp {x:,.0f}")
-                    results['Skor Kemiripan'] = (pd.to_numeric(results['Skor Kemiripan']) * 100).apply(lambda x: f"{x:.2f}%")
+# --- SIDEBAR ---
+st.sidebar.header("Opsi Analisis")
+if st.sidebar.button("Jalankan Ulang Analisis SBERT Manual", key="manual_sbert"):
+    with st.spinner("Analisis SBERT manual sedang berjalan..."):
+        st.session_state.df_hasil_sbert = run_sbert_analysis(
+            st.session_state.spreadsheet,
+            st.session_state.df_dbklik,
+            st.session_state.df_competitors
+        )
+    st.success("Analisis SBERT manual selesai!")
+    st.rerun()
 
-                    st.dataframe(results[[
-                        'Toko Kompetitor', 
-                        'Nama Produk Kompetitor', 
-                        'HARGA Kompetitor', 
-                        'Keterangan',
-                        'Skor Kemiripan'
-                    ]], use_container_width=True)
+
+# --- TABS ---
+tab1, tab2, tab3 = st.tabs(["📈 Ringkasan Penjualan", "⚖️ Perbandingan Harga (SBERT)", "🆕 Analisis Produk Baru"])
+
+with tab1:
+    st.header("Ringkasan Penjualan DB Klik")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        brand_filter = st.selectbox("Pilih Brand:", options=['Semua Brand'] + sorted(st.session_state.df_dbklik['BRAND'].unique().tolist()))
+    
+    filtered_dbklik = st.session_state.df_dbklik
+    if brand_filter != 'Semua Brand':
+        filtered_dbklik = filtered_dbklik[filtered_dbklik['BRAND'] == brand_filter]
+
+    # Grafik penjualan per brand
+    sales_by_brand = filtered_dbklik.groupby('BRAND')['Terjual/Bln'].sum().sort_values(ascending=False).head(15)
+    fig_brand = px.bar(sales_by_brand, x=sales_by_brand.index, y='Terjual/Bln', title="Top 15 Brand Terlaris", labels={'index': 'Brand', 'Terjual/Bln': 'Total Terjual per Bulan'})
+    st.plotly_chart(fig_brand, use_container_width=True)
+
+    # Tabel produk terlaris
+    st.subheader("Produk Terlaris")
+    top_products = filtered_dbklik.sort_values(by="Terjual/Bln", ascending=False).head(20)
+    st.dataframe(top_products[['NAMA', 'BRAND', 'KATEGORI', 'Harga', 'Terjual/Bln']])
+
+
+with tab2:
+    st.header("Perbandingan Harga Produk dengan Kompetitor (Metode SBERT)")
+    
+    if st.session_state.df_hasil_sbert.empty:
+        st.warning("Data hasil perbandingan belum tersedia. Silakan jalankan analisis SBERT melalui tombol di sidebar.")
+    else:
+        # Dropdown untuk memilih produk DB Klik
+        product_list = sorted(st.session_state.df_hasil_sbert['Produk DBKlik'].unique().tolist())
+        selected_product = st.selectbox("Pilih Produk DB Klik untuk Dilihat Perbandingannya:", options=product_list)
+        
+        if selected_product:
+            comparison_df = st.session_state.df_hasil_sbert[st.session_state.df_hasil_sbert['Produk DBKlik'] == selected_product].copy()
+            
+            # Konversi kolom ke numerik untuk perhitungan
+            comparison_df['Harga DBKlik'] = pd.to_numeric(comparison_df['Harga DBKlik'], errors='coerce')
+            comparison_df['Harga Kompetitor'] = pd.to_numeric(comparison_df['Harga Kompetitor'], errors='coerce')
+            
+            # Hitung selisih
+            comparison_df['Selisih'] = comparison_df['Harga Kompetitor'] - comparison_df['Harga DBKlik']
+            
+            # Format tampilan
+            comparison_df['Skor Kemiripan (%)'] = pd.to_numeric(comparison_df['Skor Kemiripan (%)'], errors='coerce').map('{:,.2f}%'.format)
+            comparison_df['Harga DBKlik'] = comparison_df['Harga DBKlik'].map('Rp {:,.0f}'.format)
+            comparison_df['Harga Kompetitor'] = comparison_df['Harga Kompetitor'].map('Rp {:,.0f}'.format)
+            
+            def format_selisih(x):
+                if pd.isna(x):
+                    return "N/A"
+                if x > 0:
+                    return f"Lebih Mahal Rp {x:,.0f}"
+                elif x < 0:
+                    return f"Lebih Murah Rp {abs(x):,.0f}"
                 else:
-                    st.info("Tidak ditemukan produk yang sangat mirip di toko kompetitor berdasarkan analisis SBERT.")
+                    return "Harga Sama"
+            
+            comparison_df['Keterangan'] = comparison_df['Selisih'].apply(format_selisih)
+
+            st.dataframe(comparison_df[['Toko Kompetitor', 'Produk Kompetitor', 'Harga Kompetitor', 'Keterangan', 'Skor Kemiripan (%)']], use_container_width=True)
 
 
-    with tab3:
-        # ... (Kode Analisis Tren Anda tetap di sini, tidak diubah) ...
-        # (Kode dari file asli Anda untuk tab3 akan ditempatkan di sini)
-        st.header("Analisis Tren Penjualan")
-        BRAND_list = sorted(df_all['BRAND'].unique())
-        selected_BRAND_tren = st.selectbox("Pilih BRAND untuk melihat tren:", BRAND_list)
+with tab3:
+    st.header("Analisis Produk Baru di Toko Kompetitor")
+    
+    # Gabungkan semua data untuk analisis ini
+    df_combined = pd.concat([st.session_state.df_dbklik, st.session_state.df_competitors], ignore_index=True)
+    df_combined['Minggu'] = df_combined['TANGGAL'].dt.to_period('W').astype(str)
+    
+    # Filter data
+    all_brands_tab3 = ['Semua Brand'] + sorted(df_combined['BRAND'].unique().tolist())
+    brand_filter_tab3 = st.selectbox("Filter berdasarkan Brand:", all_brands_tab3, key="brand_tab3")
+
+    df_filtered = df_combined
+    if brand_filter_tab3 != 'Semua Brand':
+        df_filtered = df_filtered[df_filtered['BRAND'] == brand_filter_tab3]
         
-        if selected_BRAND_tren:
-            df_tren = df_all[df_all['BRAND'] == selected_BRAND_tren]
-            tren_penjualan = df_tren.groupby('Minggu')['TERJUAL/BLN'].sum().reset_index()
-            fig_tren = px.line(tren_penjualan, x='Minggu', y='TERJUAL/BLN', title=f'Tren Penjualan Mingguan untuk BRAND: {selected_BRAND_tren}', markers=True)
-            st.plotly_chart(fig_tren, use_container_width=True)
-
-
-    with tab4:
-        # ... (Kode Deteksi Produk Baru Anda tetap di sini, tidak diubah) ...
-        # (Kode dari file asli Anda untuk tab4 akan ditempatkan di sini)
-        st.header("Deteksi Produk Baru per Minggu")
-        df_filtered = df_all.copy()
-        weeks = sorted(df_filtered['Minggu'].unique())
-        
+    weeks = sorted(df_filtered['Minggu'].unique())
+    if len(weeks) >= 2:
         col1, col2 = st.columns(2)
-        week_before = col1.selectbox("Pilih Minggu Pembanding:", weeks, index=0)
-        week_after = col2.selectbox("Pilih Minggu Penentu:", weeks, index=len(weeks)-1)
+        with col1:
+            week_before = st.selectbox("Pilih Minggu Pembanding:", weeks)
+        with col2:
+            week_after = st.selectbox("Pilih Minggu Penentu:", weeks, index=len(weeks)-1)
 
         if week_before >= week_after:
             st.error("Minggu Penentu harus setelah Minggu Pembanding.")
         else:
-            all_stores = sorted(df_filtered['Toko'].unique())
+            all_stores = sorted(df_filtered['TOKO'].unique())
             for store in all_stores:
                 with st.expander(f"Lihat Produk Baru di Toko: **{store}**"):
-                    products_before = set(df_filtered[(df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_before) & (df_filtered['Status'] == 'Tersedia')]['Nama Produk'])
-                    products_after = set(df_filtered[(df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after) & (df_filtered['Status'] == 'Tersedia')]['Nama Produk'])
+                    products_before = set(df_filtered[(df_filtered['TOKO'] == store) & (df_filtered['Minggu'] == week_before) & (df_filtered['STATUS'] == 'Tersedia')]['NAMA'])
+                    products_after = set(df_filtered[(df_filtered['TOKO'] == store) & (df_filtered['Minggu'] == week_after) & (df_filtered['STATUS'] == 'Tersedia')]['NAMA'])
                     new_products = products_after - products_before
                     
                     if not new_products:
                         st.write("Tidak ada produk baru yang terdeteksi.")
                     else:
                         st.write(f"Ditemukan **{len(new_products)}** produk baru:")
-                        new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)].copy()
-                        new_products_df['HARGA_fmt'] = new_products_df['HARGA'].apply(lambda x: f"Rp {x:,.0f}")
-                        st.dataframe(new_products_df[['Nama Produk', 'HARGA_fmt', 'BRAND']], use_container_width=True)
-
-else:
-    st.error("Tidak dapat memuat data. Periksa koneksi atau konfigurasi Google Sheets Anda.")
-
-
-
-
+                        new_products_df = df_filtered[df_filtered['NAMA'].isin(new_products) & (df_filtered['TOKO'] == store) & (df_filtered['Minggu'] == week_after)].copy()
+                        new_products_df['Harga_fmt'] = new_products_df['Harga'].apply(lambda x: f"Rp {x:,.0f}")
+                        st.dataframe(new_products_df[['NAMA', 'Harga_fmt']], use_container_width=True)
+    else:
+        st.info("Tidak cukup data mingguan untuk melakukan perbandingan.")
