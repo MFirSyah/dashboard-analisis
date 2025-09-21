@@ -335,7 +335,7 @@ if not st.session_state.data_loaded:
                 st.session_state.db_df = db_df
                 st.session_state.matches_df = matches_df
                 st.session_state.data_loaded = True
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("Gagal memuat data. Periksa akses Google Sheets dan st.secrets.")
     st.info("👆 Klik tombol untuk menarik data (semua sheet REKAP + DATABASE + HASIL_MATCHING jika ada).")
@@ -383,7 +383,7 @@ if latest_source_date > last_destination_update:
         _, _, new_matches_df = load_all_data(gc, SPREADSHEET_KEY)
         st.session_state.matches_df = new_matches_df
         st.success("Perbaruan selesai dan data perbandingan diperbarui di memori aplikasi.")
-        st.experimental_rerun()
+        st.rerun()
 else:
     st.sidebar.success("Data perbandingan tampak sudah terbaru.")
 
@@ -392,7 +392,7 @@ if st.sidebar.button("Jalankan Pembaruan Manual (force)", type="secondary"):
     _, _, new_matches_df = load_all_data(gc, SPREADSHEET_KEY)
     st.session_state.matches_df = new_matches_df
     st.success("Perbaruan manual selesai.")
-    st.experimental_rerun()
+    st.rerun()
 
 st.sidebar.divider()
 st.sidebar.header("Ekspor & Info")
@@ -525,4 +525,5 @@ with tab6:
                         new_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko']==s)]
                         new_df['Harga_fmt'] = new_df['Harga'].apply(lambda x: f"Rp {int(x):,}")
                         st.dataframe(new_df[['Nama Produk','Harga_fmt','Stok','Brand']].rename(columns={'Harga_fmt':'Harga'}), use_container_width=True, hide_index=True)
+
 
