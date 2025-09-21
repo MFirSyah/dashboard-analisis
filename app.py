@@ -1,6 +1,7 @@
 # ===================================================================================
 #  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI 3 (SIMPLES + UPDATE OTOMATIS)
 #  Dibuat oleh: Firman & Asisten AI Gemini (merge versi lama + fitur otomatis dari versi baru)
+#  Versi ini telah diperbaiki untuk mengatasi UnhashableParamError.
 # ===================================================================================
 
 import streamlit as st
@@ -376,7 +377,8 @@ if latest_source_date > last_destination_update:
         # jalankan update langsung (tidak perlu rerun yang rumit)
         run_price_comparison_update(gc, SPREADSHEET_KEY, score_cutoff=accuracy_cutoff)
         # setelah selesai, reload matches_df agar UI menampilkan hasil terbaru
-        _, _, new_matches_df = load_all_data(gc, SPREADSHEET_KEY)
+        # PEMBENARAN: Argumen 'gc' dihapus dari sini karena fungsi load_all_data sudah membuat koneksi sendiri.
+        _, _, new_matches_df = load_all_data(SPREADSHEET_KEY)
         st.session_state.matches_df = new_matches_df
         st.success("Perbaruan selesai dan data perbandingan diperbarui di memori aplikasi.")
         st.rerun()
@@ -385,7 +387,8 @@ else:
 
 if st.sidebar.button("Jalankan Pembaruan Manual (force)", type="secondary"):
     run_price_comparison_update(gc, SPREADSHEET_KEY, score_cutoff=accuracy_cutoff)
-    _, _, new_matches_df = load_all_data(gc, SPREADSHEET_KEY)
+    # PEMBENARAN: Argumen 'gc' dihapus dari sini karena fungsi load_all_data sudah membuat koneksi sendiri.
+    _, _, new_matches_df = load_all_data(SPREADSHEET_KEY)
     st.session_state.matches_df = new_matches_df
     st.success("Perbaruan manual selesai.")
     st.rerun()
@@ -443,6 +446,8 @@ with tab2:
         product_list = sorted(main_store_df['Nama Produk'].unique())
         selected_product = st.selectbox("Pilih produk dari toko Anda:", product_list)
         if selected_product:
+            latest_entries_overall = df_filtered.loc[df_filtered.groupby(['Toko', 'Nama Produk'])['Tanggal'].idxmax()]
+            main_store_latest_overall = latest_entries_overall[latest_entries_overall['Toko'] == my_store_name]
             product_info_list = main_store_latest_overall[main_store_latest_overall['Nama Produk'] == selected_product]
             if not product_info_list.empty:
                 product_info = product_info_list.iloc[0]
@@ -468,7 +473,11 @@ with tab2:
                             st.markdown(f"*{match['Produk Kompetitor']}*")
                             c1, c2 = st.columns(2)
                             c1.metric("Harga Kompetitor", f"Rp {int(match['Harga Kompetitor']):,}", delta=delta_txt)
-                            c2.metric("Tanggal Update", match.get('Tanggal_Update','N/A'))
+                            if 'Tanggal_Update' in match and pd.notna(match['Tanggal_Update']):
+                                update_date = pd.to_datetime(match['Tanggal_Update']).strftime('%d %b %Y')
+                            else:
+                                update_date = 'N/A'
+                            c2.metric("Tanggal Update", update_date)
 
 with tab3:
     st.header("Analisis Brand Kompetitor (Snapshot Terakhir)")
@@ -518,9 +527,8 @@ with tab6:
                         st.write("Tidak ada produk baru.")
                     else:
                         st.write(f"Ditemukan {len(new_products)} produk baru.")
-                        new_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko']==s)]
+                        new_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko']==s) & (df_filtered['Minggu']==week_after)]
+                        # Ambil data paling akhir saja untuk produk baru
+                        new_df = new_df.loc[new_df.groupby('Nama Produk')['Tanggal'].idxmax()]
                         new_df['Harga_fmt'] = new_df['Harga'].apply(lambda x: f"Rp {int(x):,}")
                         st.dataframe(new_df[['Nama Produk','Harga_fmt','Stok','Brand']].rename(columns={'Harga_fmt':'Harga'}), use_container_width=True, hide_index=True)
-
-
-
