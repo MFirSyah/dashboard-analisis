@@ -46,11 +46,13 @@ def connect_to_gsheets():
 # LOAD ALL DATA (Sederhana tapi robust)
 # ================================
 @st.cache_data(show_spinner="Mengambil data terbaru dari Google Sheets...")
-def load_all_data(gc, spreadsheet_key):
+def load_all_data(spreadsheet_key): # PERUBAHAN 1: Hapus 'gc' dari argumen
     """
     Memuat semua REKAP sheet + DATABASE + HASIL_MATCHING (jika ada).
     Menyerupai alur versi lama, tapi memberi kolom konsisten.
     """
+    gc = connect_to_gsheets() # PERUBAHAN 2: Panggil koneksi di dalam fungsi
+
     try:
         spreadsheet = gc.open_by_key(spreadsheet_key)
     except Exception as e:
@@ -327,7 +329,7 @@ if not st.session_state.data_loaded:
     col1, col2, col3 = st.columns([2, 3, 2])
     with col2:
         if st.button("Tarik Data & Mulai Analisis 🚀", key="load_data_v3", type="primary"):
-            df, db_df, matches_df = load_all_data(gc, SPREADSHEET_KEY)
+            df, db_df, matches_df = load_all_data(SPREADSHEET_KEY)
             if df is not None and not df.empty:
                 st.session_state.df = df
                 st.session_state.db_df = db_df
@@ -523,3 +525,4 @@ with tab6:
                         new_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko']==s)]
                         new_df['Harga_fmt'] = new_df['Harga'].apply(lambda x: f"Rp {int(x):,}")
                         st.dataframe(new_df[['Nama Produk','Harga_fmt','Stok','Brand']].rename(columns={'Harga_fmt':'Harga'}), use_container_width=True, hide_index=True)
+
