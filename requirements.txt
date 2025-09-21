@@ -1,14 +1,6 @@
 streamlit
 pandas
-gspread
-oauth2client
-fuzzywuzzy
-python-levenshtein
+rapidfuzz
 plotly
-numpy
-streamlit
-pandas
-google-api-python-client
-google-auth-oauthlib
-google-auth-httplib2
-thefuzz
+gspread
+gspread-dataframe
