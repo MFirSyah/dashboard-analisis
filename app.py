@@ -33,7 +33,7 @@ def load_source_data(_gc, spreadsheet_id):
     spreadsheet = _gc.open_by_key(spreadsheet_id)
     worksheet_list = [
         "DB KLIK - REKAP - READY", "DB KLIK - REKAP - HABIS",
-        "SURYA MITRA ONLINE - REKAP - RE", "SURYA MITRA ONLINE - REKAP - HA",
+        "SURYA MITRA ONLINE - REKAP - READY", "SURYA MITRA ONLINE - REKAP - HABIS",
         "GG STORE - REKAP - READY", "GG STORE - REKAP - HABIS",
         "TECH ISLAND - REKAP - READY", "TECH ISLAND - REKAP - HABIS",
         "MULTIFUNGSI - REKAP - READY", "MULTIFUNGSI - REKAP - HABIS",
@@ -345,6 +345,7 @@ elif selected_tab == "Produk Baru":
                     new_products_df = df_sumber[df_sumber['Nama Produk'].isin(new_products) & (df_sumber['Toko'] == store) & (df_sumber['Minggu'] == week_after)].copy()
                     new_products_df['Harga_fmt'] = new_products_df['Harga'].apply(lambda x: f"Rp {int(x):,.0f}")
                     st.dataframe(new_products_df[['Nama Produk', 'Harga_fmt', 'Terjual/Bln']], use_container_width=True)
+
 
 
 
