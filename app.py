@@ -1,8 +1,7 @@
 # ===================================================================================
-#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI 4 (PENGGABUNGAN FITUR)
+#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI 4.1 (MODIFIKASI)
 #  Dibuat oleh: Firman & Asisten AI Gemini
-#  Versi ini menggabungkan backend pembaruan otomatis dari 'uji_coba'
-#  dengan analisis dan visualisasi lengkap dari 'v3' (Struktur Asli).
+#  Versi ini mengimplementasikan 10 permintaan perbaikan spesifik.
 # ===================================================================================
 
 import streamlit as st
@@ -17,7 +16,7 @@ from gspread_dataframe import set_with_dataframe
 # ================================
 # KONFIGURASI HALAMAN
 # ================================
-st.set_page_config(layout="wide", page_title="Dashboard Analisis v4")
+st.set_page_config(layout="wide", page_title="Dashboard Analisis")
 
 # ================================
 # FUNGSI KONEKSI GOOGLE SHEETS (Dari uji_coba)
@@ -79,12 +78,24 @@ def load_all_data(spreadsheet_key):
                 rekap_list_df.append(df_sheet)
         except gspread.exceptions.WorksheetNotFound: continue
         except Exception as e: st.warning(f"Gagal baca sheet '{sheet_name}': {e}"); continue
+    
+    # PERUBAHAN: Pre-processing database_df untuk SKU
+    if not database_df.empty:
+        database_df.columns = [str(c).strip().upper() for c in database_df.columns]
+        rename_map = {'NAMA': 'Nama Produk', 'NAMA PRODUK': 'Nama Produk'}
+        for old_name, new_name in rename_map.items():
+            if old_name in database_df.columns:
+                database_df.rename(columns={old_name: new_name}, inplace=True)
+                break
+        if 'SKU' not in database_df.columns:
+            database_df['SKU'] = "N/A"
+        database_df = database_df[['Nama Produk', 'SKU']].copy() # Hanya ambil kolom yang perlu
 
     if not rekap_list_df:
         st.error("Tidak ada data REKAP yang berhasil dimuat."); return None, None, None
     rekap_df = pd.concat(rekap_list_df, ignore_index=True)
     rekap_df.columns = [str(c).strip().upper() for c in rekap_df.columns]
-    # PERHATIAN: Kolom KATEGORI dan SKU tidak di-rename agar tetap 'KATEGORI' & 'SKU'
+    # PERHATIAN: Kolom KATEGORI tidak di-rename agar tetap 'KATEGORI'
     final_rename = {'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga', 'BRAND': 'Brand', 'STOK': 'Stok', 'TOKO': 'Toko', 'STATUS': 'Status'}
     rekap_df.rename(columns=final_rename, inplace=True)
 
@@ -202,7 +213,7 @@ def convert_df_for_download(df):
 # ================================
 # APLIKASI UTAMA (MAIN APP)
 # ================================
-st.title("📊 Dashboard Analisis Penjualan & Kompetitor — v4")
+st.title("📊 Dashboard Analisis Penjualan & Kompetitor — v4.1")
 
 SPREADSHEET_KEY = "1hl7YPEPg4aaEheN5fBKk65YX3-KdkQBRHCJWhVr9kVQ"
 gc = connect_to_gsheets()
@@ -297,7 +308,6 @@ with tab1:
 
     st.subheader(f"{section_counter}. Analisis Kategori Terlaris (Berdasarkan Omzet)")
     section_counter += 1
-    # PERUBAHAN: Analisis Kategori langsung dari kolom yang ada
     if 'KATEGORI' in main_store_latest_overall.columns:
         main_store_cat = main_store_latest_overall.copy()
         main_store_cat['KATEGORI'] = main_store_cat['KATEGORI'].replace('', 'Lainnya').fillna('Lainnya')
@@ -308,13 +318,13 @@ with tab1:
             cat_sales_sorted = category_sales.sort_values('Omzet', ascending=False).head(10)
             fig_cat = px.bar(cat_sales_sorted, x='KATEGORI', y='Omzet', title='Top 10 Kategori Berdasarkan Omzet', text_auto='.2s')
             st.plotly_chart(fig_cat, use_container_width=True)
-
-            # --- PENAMBAHAN KODE (POINT 1): TABEL DATA GRAFIK ---
-            st.markdown("##### Data Tabel Omzet Kategori")
-            cat_sales_table_display = cat_sales_sorted.copy()
-            cat_sales_table_display['Omzet'] = cat_sales_table_display['Omzet'].apply(lambda x: f"Rp {int(x):,.0f}")
-            st.dataframe(cat_sales_table_display, use_container_width=True, hide_index=True)
-            # --- AKHIR PENAMBAHAN KODE ---
+            
+            # --- PERBAIKAN 1: Menambahkan tabel dari nilai asli bar chart ---
+            st.markdown("##### Tabel Data Omzet per Kategori")
+            table_cat_sales = cat_sales_sorted.copy()
+            table_cat_sales['Omzet'] = table_cat_sales['Omzet'].apply(lambda x: f"Rp {int(x):,.0f}")
+            st.dataframe(table_cat_sales, use_container_width=True, hide_index=True)
+            # --- AKHIR PERBAIKAN 1 ---
 
             st.markdown("---")
             st.subheader("Lihat Produk Terlaris per Kategori")
@@ -333,16 +343,21 @@ with tab1:
                 if top_products_in_category.empty:
                     st.info(f"Tidak ada produk terlaris untuk kategori '{selected_category}'.")
                 else:
-                    # --- PENAMBAHAN KODE (POINT 2): KOLOM SKU ---
-                    if 'SKU' not in top_products_in_category.columns:
-                        top_products_in_category['SKU'] = 'N/A' # Placeholder jika SKU tidak ada
-                    
-                    display_table = top_products_in_category[['Nama Produk', 'SKU', 'Harga', 'Terjual per Bulan', 'Omzet']].copy()
+                    # --- PERBAIKAN 2: Menambahkan kolom SKU ---
+                    # Gabungkan dengan db_df untuk mendapatkan SKU
+                    if not db_df.empty:
+                        top_products_with_sku = pd.merge(top_products_in_category, db_df, on='Nama Produk', how='left')
+                        top_products_with_sku['SKU'] = top_products_with_sku['SKU'].fillna('N/A')
+                    else:
+                        top_products_with_sku = top_products_in_category
+                        top_products_with_sku['SKU'] = 'N/A'
+
+                    display_table = top_products_with_sku[['Nama Produk', 'SKU', 'Harga', 'Terjual per Bulan', 'Omzet']].copy()
                     display_table['Harga'] = display_table['Harga'].apply(lambda x: f"Rp {int(x):,.0f}")
                     display_table['Omzet'] = display_table['Omzet'].apply(lambda x: f"Rp {int(x):,.0f}")
                     
                     st.dataframe(display_table, use_container_width=True, hide_index=True)
-                    # --- AKHIR PENAMBAHAN KODE ---
+            # --- AKHIR PERBAIKAN 2 ---
 
         else:
             st.info("Tidak ada data omzet per kategori untuk ditampilkan.")
@@ -352,30 +367,48 @@ with tab1:
 
     st.subheader(f"{section_counter}. Produk Terlaris")
     section_counter += 1
-    top_products = main_store_latest_overall.sort_values('Terjual per Bulan', ascending=False).head(15).copy()
+    top_products_base = main_store_latest_overall.sort_values('Terjual per Bulan', ascending=False).head(15).copy()
+    
+    # --- PERBAIKAN 9: Menambahkan kolom SKU ke tabel Produk Terlaris ---
+    if not db_df.empty:
+        top_products = pd.merge(top_products_base, db_df, on='Nama Produk', how='left')
+        top_products['SKU'] = top_products['SKU'].fillna('N/A')
+    else:
+        top_products = top_products_base
+        top_products['SKU'] = 'N/A'
+    
     top_products['Harga_rp'] = top_products['Harga'].apply(lambda x: f"Rp {int(x):,.0f}")
     top_products['Omzet_rp'] = top_products['Omzet'].apply(lambda x: f"Rp {int(x):,.0f}")
     
-    display_df_top = top_products[['Nama Produk', 'Harga_rp', 'Omzet_rp', 'Terjual per Bulan']].rename(
+    display_df_top = top_products[['Nama Produk', 'SKU', 'Harga_rp', 'Omzet_rp', 'Terjual per Bulan']].rename(
         columns={'Harga_rp': 'Harga', 'Omzet_rp': 'Omzet'}
     )
     st.dataframe(display_df_top, use_container_width=True, hide_index=True)
+    # --- AKHIR PERBAIKAN 9 ---
 
     st.subheader(f"{section_counter}. Distribusi Omzet Brand")
     section_counter += 1
     brand_omzet_main = main_store_latest_overall.groupby('Brand')['Omzet'].sum().reset_index()
     if not brand_omzet_main.empty:
-        # --- PERUBAHAN KODE (POINT 3): LABEL PIE CHART ---
-        brand_omzet_pie_data = brand_omzet_main.sort_values('Omzet', ascending=False).head(7)
-        fig_brand_pie = px.pie(brand_omzet_pie_data, 
-                            names='Brand', values='Omzet', 
-                            title='Distribusi Omzet Top 7 Brand (Snapshot Terakhir)')
+        # --- PERBAIKAN 3: Modifikasi Pie Chart ---
+        fig_brand_pie = px.pie(brand_omzet_main.sort_values('Omzet', ascending=False).head(7), 
+                            names='Brand', values='Omzet', title='Distribusi Omzet Top 7 Brand (Snapshot Terakhir)')
+        # Menampilkan persen di dalam, dan nilai + label saat hover
         fig_brand_pie.update_traces(
-            textposition='outside',
-            texttemplate='<b>%{label}</b><br>Rp %{value:,.0f}<br>(%{percent})'
+            textposition='inside', 
+            textinfo='percent',
+            insidetextorientation='radial',
+            hovertemplate='<b>%{label}</b><br>Omzet: Rp %{value:,.0f}<br>Persentase: %{percent}'
+        )
+        # Menampilkan label dan nilai di luar chart
+        fig_brand_pie.update_layout(
+            showlegend=True, 
+            legend_title_text='Brand',
+            uniformtext_minsize=12, 
+            uniformtext_mode='hide'
         )
         st.plotly_chart(fig_brand_pie, use_container_width=True)
-        # --- AKHIR PERUBAHAN KODE ---
+        # --- AKHIR PERBAIKAN 3 ---
     else:
         st.info("Tidak ada data omzet brand.")
 
@@ -394,110 +427,117 @@ with tab1:
     )
 
 with tab2:
-    # --- SELURUH LOGIKA TAB 2 DITULIS ULANG SESUAI PERMINTAAN ---
     st.header(f"Perbandingan Produk '{my_store_name}' dengan Kompetitor")
-    st.info("Perbandingan ini menggunakan data snapshot (entri tanggal paling akhir) dari setiap toko dan hasil matching terakhir. Gunakan sidebar untuk memperbarui.")
+    st.info("Perbandingan menggunakan data snapshot terakhir dari rentang tanggal yang dipilih.")
     
-    # --- PENAMBAHAN KODE (POINT 5): FILTER BRAND ---
-    brands_list = ['Semua Brand'] + sorted(main_store_df['Brand'].unique())
-    selected_brand = st.selectbox("Filter berdasarkan Brand:", brands_list, key="brand_select_compare")
-
-    # Filter product list based on brand
-    if selected_brand == 'Semua Brand':
-        product_list_filtered = sorted(main_store_df['Nama Produk'].unique())
+    # --- PERBAIKAN 4 & 5: Filter berdasarkan tanggal terbaru dan brand ---
+    if main_store_df.empty:
+        st.warning(f"Tidak ada data untuk toko '{my_store_name}' pada rentang tanggal ini.")
     else:
-        product_list_filtered = sorted(main_store_df[main_store_df['Brand'] == selected_brand]['Nama Produk'].unique())
-    # --- AKHIR PENAMBAHAN KODE ---
-
-    if not product_list_filtered:
-        st.warning(f"Tidak ada produk untuk brand '{selected_brand}' pada rentang tanggal yang dipilih.")
-        st.stop()
-
-    selected_product = st.selectbox("Pilih produk dari toko Anda:", product_list_filtered, key="product_select_compare")
-    
-    if selected_product:
-        product_info_list = main_store_latest_overall[main_store_latest_overall['Nama Produk'] == selected_product]
+        # Ambil data HANYA dari tanggal paling baru di DB KLIK dalam rentang filter
+        latest_date_in_main_store = main_store_df['Tanggal'].max()
+        main_store_latest_day_df = main_store_df[main_store_df['Tanggal'].dt.date == latest_date_in_main_store.date()].copy()
         
-        if not product_info_list.empty:
-            product_info = product_info_list.iloc[0]
-            st.markdown(f"**Produk Pilihan Anda:** *{product_info['Nama Produk']}*")
-            
-            col1, col2, col3 = st.columns(3)
-            
-            # --- PERUBAHAN KODE (POINT 6): METRIK BARU ---
-            # Cari semua entri terakhir dari produk ini di semua toko
-            product_occurrences = latest_entries_overall[latest_entries_overall['Nama Produk'].str.contains(re.escape(selected_product), case=False, na=False)]
+        # Filter Brand
+        brand_list = ['Semua Brand'] + sorted(main_store_latest_day_df['Brand'].unique().tolist())
+        selected_brand = st.selectbox("Filter berdasarkan Brand:", brand_list)
 
-            # Metric 1: Harga Rata-Rata
-            avg_price = product_occurrences['Harga'].mean()
-            col1.metric("Harga Rata-Rata (Semua Toko)", f"Rp {avg_price:,.0f}" if pd.notna(avg_price) else "N/A")
+        if selected_brand != 'Semua Brand':
+            filtered_by_brand_df = main_store_latest_day_df[main_store_latest_day_df['Brand'] == selected_brand]
+        else:
+            filtered_by_brand_df = main_store_latest_day_df
+            
+        # Selectbox produk berdasarkan filter
+        product_list = sorted(filtered_by_brand_df['Nama Produk'].unique())
+        if not product_list:
+            st.warning("Tidak ada produk yang cocok dengan filter brand yang dipilih.")
+            selected_product = None
+        else:
+            selected_product = st.selectbox("Pilih produk dari toko Anda (berdasarkan tanggal terbaru):", product_list, key="product_select_compare")
+    # --- AKHIR PERBAIKAN 4 & 5 ---
 
-            # Metric 2: Perbandingan Status
-            total_stores_with_product = len(product_occurrences)
-            available_stores = product_occurrences[product_occurrences['Status'] == 'Tersedia'].shape[0]
-            status_comparison_text = f"{available_stores} dari {total_stores_with_product} toko"
-            col2.metric("Status Tersedia", status_comparison_text)
+    if selected_product:
+        # --- PERBAIKAN 6: Mengganti metrik ---
+        st.markdown(f"**Produk Pilihan Anda:** *{selected_product}*")
+        
+        # Cari produk yang sama di semua toko (berdasarkan data terbaru per toko)
+        product_all_stores = latest_entries_overall[latest_entries_overall['Nama Produk'] == selected_product]
+        
+        col1, col2, col3 = st.columns(3)
+        
+        # 1. Harga Rata-Rata
+        avg_price = product_all_stores['Harga'].mean()
+        col1.metric("Harga Rata-Rata (Semua Toko)", f"Rp {avg_price:,.0f}")
+        
+        # 2. Perbandingan Status
+        my_product_info = product_all_stores[product_all_stores['Toko'] == my_store_name].iloc[0]
+        my_status = my_product_info.get('Status', 'N/A')
+        competitor_products_status = product_all_stores[product_all_stores['Toko'] != my_store_name]
+        status_counts = competitor_products_status['Status'].value_counts()
+        ready_count = status_counts.get('Tersedia', 0)
+        habis_count = status_counts.get('Habis', 0)
+        col2.metric(f"Status di {my_store_name}", my_status, f"Kompetitor: {ready_count} Ready, {habis_count} Habis")
 
-            # Metric 3: Toko Omzet Tertinggi
-            if not product_occurrences.empty:
-                top_omzet_store_row = product_occurrences.loc[product_occurrences['Omzet'].idxmax()]
-                store_name = top_omzet_store_row['Toko']
-                top_omzet_value = f"Rp {top_omzet_store_row['Omzet']:,.0f}"
-                col3.metric(f"Toko Omzet Tertinggi", f"{store_name}", help=f"Omzet untuk produk ini: {top_omzet_value}")
-            else:
-                col3.metric("Toko Omzet Tertinggi", "N/A")
-            # --- AKHIR PERUBAHAN KODE ---
-            
-            st.divider()
+        # 3. Toko Dengan Omzet Tertinggi
+        if not product_all_stores.empty:
+            top_omzet_row = product_all_stores.loc[product_all_stores['Omzet'].idxmax()]
+            top_store = top_omzet_row['Toko']
+            top_omzet = top_omzet_row['Omzet']
+            col3.metric("Toko Omzet Tertinggi", top_store, f"Rp {int(top_omzet):,}")
+        else:
+            col3.metric("Toko Omzet Tertinggi", "N/A", "N/A")
+        
+        st.divider()
+        # --- AKHIR PERBAIKAN 6 ---
 
-            # --- PERUBAHAN KODE (POINT 7): GRAFIK HISTORIS DIHAPUS ---
+        # --- PERBAIKAN 7: Visualisasi "Tren Harga Historis" dihapus ---
+
+        # --- PERBAIKAN 8: Mengubah perbandingan kompetitor menjadi tabel ---
+        st.subheader("Perbandingan di Toko Kompetitor (Hasil Matching Terakhir)")
+        
+        matches_for_product = matches_df[
+            (matches_df['Produk Toko Saya'] == selected_product) &
+            (matches_df['Skor Kemiripan'] >= accuracy_cutoff)
+        ].sort_values(by='Skor Kemiripan', ascending=False)
+        
+        if matches_for_product.empty:
+            st.warning("Tidak ditemukan kecocokan di 'HASIL_MATCHING' dengan filter akurasi Anda.")
+        else:
+            comparison_list = []
+            my_price = int(my_product_info['Harga'])
             
-            # --- PERUBAHAN KODE (POINT 4 & 8): MENGGUNAKAN DATA TERAKHIR & MENAMPILKAN DALAM TABEL ---
-            st.subheader("Perbandingan di Toko Kompetitor (Hasil Matching Terakhir)")
-            
-            matches_for_product = matches_df[
-                (matches_df['Produk Toko Saya'] == selected_product) &
-                (matches_df['Skor Kemiripan'] >= accuracy_cutoff)
-            ].sort_values(by='Skor Kemiripan', ascending=False)
-            
-            if matches_for_product.empty:
-                st.warning("Tidak ditemukan kecocokan di 'HASIL_MATCHING' dengan filter akurasi Anda.")
-            else:
-                comparison_list = []
-                my_product_price = int(product_info['Harga'])
+            # Tambahkan baris untuk toko saya
+            comparison_list.append({
+                'Toko': f'⭐ {my_store_name} (Anda)',
+                'Nama Produk': selected_product,
+                'Harga': f"Rp {my_price:,}",
+                'Selisih Harga': '-',
+                'Kemiripan (%)': 100
+            })
+
+            # Loop untuk kompetitor
+            for _, match in matches_for_product.iterrows():
+                comp_price = int(match['Harga Kompetitor'])
+                price_diff = comp_price - my_price
                 
-                # Tambahkan info produk toko saya sebagai baris pertama
+                if price_diff > 0:
+                    delta_txt = f"▲ Rp {price_diff:,} (Lebih Mahal)"
+                elif price_diff < 0:
+                    delta_txt = f"▼ Rp {abs(price_diff):,} (Lebih Murah)"
+                else:
+                    delta_txt = "Sama"
+                
                 comparison_list.append({
-                    'Toko': f"⭐ {my_store_name} (Anda)",
-                    'Nama Produk': selected_product,
-                    'Harga': f"Rp {my_product_price:,}",
-                    'Perbedaan Harga': "-",
-                    'Skor Kemiripan (%)': 100
+                    'Toko': match['Toko Kompetitor'],
+                    'Nama Produk': match['Produk Kompetitor'],
+                    'Harga': f"Rp {comp_price:,}",
+                    'Selisih Harga': delta_txt,
+                    'Kemiripan (%)': int(match['Skor Kemiripan'])
                 })
-
-                # Tambahkan info produk kompetitor
-                for _, match in matches_for_product.iterrows():
-                    competitor_price = int(match['Harga Kompetitor'])
-                    price_diff = competitor_price - my_product_price
-                    
-                    if price_diff > 0:
-                        delta_txt = f"▲ Rp {price_diff:,} (Lebih Mahal)"
-                    elif price_diff < 0:
-                        delta_txt = f"▼ Rp {abs(price_diff):,} (Lebih Murah)"
-                    else:
-                        delta_txt = "Sama"
-
-                    comparison_list.append({
-                        'Toko': match['Toko Kompetitor'],
-                        'Nama Produk': match['Produk Kompetitor'],
-                        'Harga': f"Rp {competitor_price:,}",
-                        'Perbedaan Harga': delta_txt,
-                        'Skor Kemiripan (%)': int(match['Skor Kemiripan'])
-                    })
-                
-                comparison_df = pd.DataFrame(comparison_list)
-                st.dataframe(comparison_df, use_container_width=True, hide_index=True)
-            # --- AKHIR PERUBAHAN KODE ---
+            
+            comparison_df = pd.DataFrame(comparison_list)
+            st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+        # --- AKHIR PERBAIKAN 8 ---
 
 with tab3:
     st.header("Analisis Brand di Toko Kompetitor")
@@ -511,12 +551,12 @@ with tab3:
                 brand_analysis = single_competitor_df.groupby('Brand').agg(Total_Omzet=('Omzet', 'sum'), Total_Unit_Terjual=('Terjual per Bulan', 'sum')).reset_index().sort_values("Total_Omzet", ascending=False)
                 
                 if not brand_analysis.empty:
-                    # --- PERUBAHAN KODE (POINT 9): FORMAT RUPIAH ---
-                    brand_analysis_display = brand_analysis.head(10).copy()
-                    brand_analysis_display['Total_Omzet'] = brand_analysis_display['Total_Omzet'].apply(lambda x: f"Rp {int(x):,.0f}")
-                    st.dataframe(brand_analysis_display, use_container_width=True, hide_index=True)
-                    # --- AKHIR PERUBAHAN KODE ---
-                    
+                    # --- PERBAIKAN 10: Format kolom Total_Omzet menjadi Rupiah ---
+                    display_brand_analysis = brand_analysis.head(10).copy()
+                    display_brand_analysis['Total_Omzet'] = display_brand_analysis['Total_Omzet'].apply(lambda x: f"Rp {int(x):,.0f}")
+                    st.dataframe(display_brand_analysis, use_container_width=True, hide_index=True)
+                    # --- AKHIR PERBAIKAN 10 ---
+
                     fig_pie_comp = px.pie(brand_analysis.head(7), names='Brand', values='Total_Omzet', title=f'Distribusi Omzet Top 7 Brand di {competitor_store} (Snapshot Terakhir)')
                     st.plotly_chart(fig_pie_comp, use_container_width=True)
                 else:
