@@ -410,7 +410,6 @@ with tab2:
     st.header(f"Perbandingan Produk '{my_store_name}' dengan Kompetitor")
     st.info("Perbandingan menggunakan data produk terbaru dari toko Anda.")
     
-    # --- POIN 4 & 5: Logika Filter Baru Berdasarkan Tanggal Terbaru dan Brand ---
     df_main_store_unfiltered = df[df['Toko'] == my_store_name]
     latest_date_in_db_klik = df_main_store_unfiltered['Tanggal'].max()
     latest_products_df = df_main_store_unfiltered[df_main_store_unfiltered['Tanggal'] == latest_date_in_db_klik].copy()
@@ -425,7 +424,6 @@ with tab2:
         
     product_list = sorted(products_to_show_df['Nama Produk'].unique())
     selected_product = st.selectbox("Pilih produk dari toko Anda:", product_list, key="product_select_compare")
-    # --- AKHIR PERUBAHAN POIN 4 & 5 ---
 
     if selected_product:
         product_info_list = latest_products_df[latest_products_df['Nama Produk'] == selected_product]
@@ -434,8 +432,12 @@ with tab2:
             product_info = product_info_list.iloc[0]
             st.markdown(f"**Produk Pilihan Anda:** *{product_info['Nama Produk']}*")
             
-            # --- POIN 6: Informasi Metrik Baru ---
             all_occurrences = df_filtered[df_filtered['Nama Produk'] == selected_product]
+            matches_for_product = matches_df[
+                (matches_df['Produk Toko Saya'] == selected_product) &
+                (matches_df['Skor Kemiripan'] >= accuracy_cutoff)
+            ].sort_values(by='Skor Kemiripan', ascending=False)
+
             col1, col2, col3 = st.columns(3)
             
             # Metrik 1: Harga Rata-rata
@@ -445,33 +447,39 @@ with tab2:
             else:
                 col1.metric("Harga Rata-Rata (Semua Toko)", "N/A")
                 
-            # Metrik 2: Perbandingan Status
-            status_counts = all_occurrences['Status'].value_counts()
-            ready_count = status_counts.get('Tersedia', 0)
-            oot_count = status_counts.get('Habis', 0)
-            col2.metric("Perbandingan Status", f"Ready: {ready_count} | Habis: {oot_count}")
+            # --- POIN 1 (Revisi): Logika Baru untuk Perbandingan Status ---
+            total_competitor_stores = len(competitor_df['Toko'].unique())
+            
+            # Cari status dari produk yang cocok di data kompetitor terbaru
+            matched_product_names = matches_for_product['Produk Kompetitor'].unique()
+            matched_products_details = competitor_latest_overall[
+                competitor_latest_overall['Nama Produk'].isin(matched_product_names)
+            ]
+            
+            ready_count = matched_products_details[matched_products_details['Status'] == 'Tersedia']['Toko'].nunique()
+            oot_count = total_competitor_stores - ready_count
+            
+            col2.metric(
+                "Status di Kompetitor", 
+                f"Ready: {ready_count} | Habis: {oot_count}", 
+                help=f"Berdasarkan {total_competitor_stores} total toko kompetitor yang dipantau."
+            )
+            # --- AKHIR PERUBAHAN POIN 1 (Revisi) ---
 
-            # Metrik 3: Toko Omzet Tertinggi
+            # --- POIN 1 (Revisi): Menampilkan Omzet di Metrik ---
             if not all_occurrences.empty:
                 top_store_row = all_occurrences.loc[all_occurrences['Omzet'].idxmax()]
                 top_store_name = top_store_row['Toko']
                 top_omzet = top_store_row['Omzet']
-                col3.metric("Toko Omzet Tertinggi", f"{top_store_name}", help=f"Omzet: Rp {int(top_omzet):,}")
+                col3.metric("Toko Omzet Tertinggi", f"{top_store_name}", f"Rp {int(top_omzet):,}")
             else:
                  col3.metric("Toko Omzet Tertinggi", "N/A")
+            # --- AKHIR PERUBAHAN POIN 1 (Revisi) ---
             
             st.divider()
-            # --- AKHIR PERUBAHAN POIN 6 ---
-
-            # --- POIN 7: Tren Harga Historis Dihapus ---
             
-            # --- POIN 8: Mengubah Perbandingan Menjadi Tabel ---
+            # --- POIN 2 (Revisi): Memperbarui Tabel Perbandingan ---
             st.subheader("Perbandingan di Toko Kompetitor (Hasil Matching Terakhir)")
-            matches_for_product = matches_df[
-                (matches_df['Produk Toko Saya'] == selected_product) &
-                (matches_df['Skor Kemiripan'] >= accuracy_cutoff)
-            ].sort_values(by='Skor Kemiripan', ascending=False)
-            
             if matches_for_product.empty:
                 st.warning("Tidak ditemukan kecocokan di 'HASIL_MATCHING' dengan filter akurasi Anda.")
             else:
@@ -482,18 +490,40 @@ with tab2:
                     comp_price = int(match['Harga Kompetitor'])
                     price_diff = comp_price - my_price
                     
+                    # Tambahan info lebih murah/mahal
+                    if price_diff > 0:
+                        diff_text = f" (Lebih Mahal)"
+                    elif price_diff < 0:
+                        diff_text = f" (Lebih Murah)"
+                    else:
+                        diff_text = f" (Sama)"
+
+                    # Ambil data 'Terjual per Bulan' dan 'Omzet' dari data kompetitor terbaru
+                    comp_details = competitor_latest_overall[
+                        (competitor_latest_overall['Nama Produk'] == match['Produk Kompetitor']) &
+                        (competitor_latest_overall['Toko'] == match['Toko Kompetitor'])
+                    ]
+                    
+                    terjual = comp_details['Terjual per Bulan'].iloc[0] if not comp_details.empty else 0
+                    omzet = comp_details['Omzet'].iloc[0] if not comp_details.empty else 0
+                    
                     comparison_data.append({
                         'Toko Kompetitor': match['Toko Kompetitor'],
-                        'Produk Kompetitor': match['Produk Kompetitor'],
                         'Harga Kompetitor': f"Rp {comp_price:,}",
-                        'Harga Toko Saya': f"Rp {my_price:,}",
-                        'Selisih Harga': f"Rp {price_diff:,}",
+                        'Selisih Harga': f"Rp {price_diff:,}{diff_text}",
+                        'Terjual per Bulan': int(terjual) if terjual else 0,
+                        'Omzet': f"Rp {int(omzet):,}" if omzet else "Rp 0",
                         'Skor Kemiripan (%)': int(match['Skor Kemiripan'])
                     })
                 
                 comparison_df = pd.DataFrame(comparison_data)
-                st.dataframe(comparison_df, use_container_width=True, hide_index=True)
-            # --- AKHIR PERUBAHAN POIN 8 ---
+                # Mengatur urutan kolom agar lebih rapi
+                ordered_cols = [
+                    'Toko Kompetitor', 'Harga Kompetitor', 'Selisih Harga', 
+                    'Terjual per Bulan', 'Omzet', 'Skor Kemiripan (%)'
+                ]
+                st.dataframe(comparison_df[ordered_cols], use_container_width=True, hide_index=True)
+            # --- AKHIR PERUBAHAN POIN 2 (Revisi) ---
             
 with tab3:
     st.header("Analisis Brand di Toko Kompetitor")
@@ -578,3 +608,4 @@ with tab6:
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)].copy()
                         new_products_df['Harga_fmt'] = new_products_df['Harga'].apply(lambda x: f"Rp {int(x):,.0f}")
                         st.dataframe(new_products_df[['Nama Produk', 'Harga_fmt', 'Stok', 'Brand']].rename(columns={'Harga_fmt':'Harga'}), use_container_width=True, hide_index=True)
+
