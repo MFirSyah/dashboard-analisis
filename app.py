@@ -49,16 +49,12 @@ def load_and_process_data():
     """
     # === Daftar Toko dan file-filenya ===
     stores = {
-        "DB KLIK": {"READY": "DATA_REKAP.xlsx - DB KLIK - REKAP - READY.csv", "HABIS": "DATA_REKAP.xlsx - DB KLIK - REKAP - HABIS.csv"},
-        "ABDITAMA": {"READY": "DATA_REKAP.xlsx - ABDITAMA - REKAP - READY.csv", "HABIS": "DATA_REKAP.xlsx - ABDITAMA - REKAP - HABIS.csv"},
-        "GG STORE": {"READY": "DATA_REKAP.xlsx - GG STORE - REKAP - READY.csv", "HABIS": "DATA_REKAP.xlsx - GG STORE - REKAP - HABIS.csv"},
-        "IT SHOP": {"READY": "DATA_REKAP.xlsx - IT SHOP - REKAP - READY.csv", "HABIS": "DATA_REKAP.xlsx - IT SHOP - REKAP - HABIS.csv"},
-        "JAYA PC": {"READY": "DATA_REKAP.xlsx - JAYA PC - REKAP - READY.csv", "HABIS": "DATA_REKAP.xlsx - JAYA PC - REKAP - HABIS.csv"},
-        "LEVEL99": {"READY": "DATA_REKAP.xlsx - LEVEL99 - REKAP - READY.csv", "HABIS": "DATA_REKAP.xlsx - LEVEL99 - REKAP - HABIS.csv"},
-        "LOGITECH": {"READY": "DATA_REKAP.xlsx - LOGITECH - REKAP - READY.csv", "HABIS": "DATA_REKAP.xlsx - LOGITECH - REKAP - HABIS.csv"},
-        "MULTIFUNGSI": {"READY": "DATA_REKAP.xlsx - MULTIFUNGSI - REKAP - READY.csv", "HABIS": "DATA_REKAP.xlsx - MULTIFUNGSI - REKAP - HABIS.csv"},
-        "SURYA MITRA ONLINE": {"READY": "DATA_REKAP.xlsx - SURYA MITRA ONLINE - REKAP - RE.csv", "HABIS": "DATA_REKAP.xlsx - SURYA MITRA ONLINE - REKAP - HA.csv"},
-        "TECH ISLAND": {"READY": "DATA_REKAP.xlsx - TECH ISLAND - REKAP - READY.csv", "HABIS": "DATA_REKAP.xlsx - TECH ISLAND - REKAP - HABIS.csv"}
+        "DATABASE", "DB KLIK - REKAP - READY", "DB KLIK - REKAP - HABIS",
+        "ABDITAMA - REKAP - READY", "ABDITAMA - REKAP - HABIS", "LEVEL99 - REKAP - READY", "LEVEL99 - REKAP - HABIS",
+        "JAYA PC - REKAP - READY", "JAYA PC - REKAP - HABIS", "MULTIFUNGSI - REKAP - READY", "MULTIFUNGSI - REKAP - HABIS",
+        "IT SHOP - REKAP - READY", "IT SHOP - REKAP - HABIS", "SURYA MITRA ONLINE - REKAP - READY", "SURYA MITRA ONLINE - REKAP - HABIS",
+        "GG STORE - REKAP - READY", "GG STORE - REKAP - HABIS", "TECH ISLAND - REKAP - READY", "TECH ISLAND - REKAP - HABIS",
+        "LOGITECH - REKAP - READY", "LOGITECH - REKAP - HABIS"
     }
 
     all_data = []
@@ -531,4 +527,5 @@ with tab6:
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)].copy()
                         new_products_df['Harga_fmt'] = new_products_df['Harga'].apply(lambda x: f"Rp {int(x):,.0f}")
                         st.dataframe(new_products_df[['Nama Produk', 'Harga_fmt', 'Stok', 'Brand']].rename(columns={'Harga_fmt':'Harga'}), use_container_width=True, hide_index=True)
+
 
