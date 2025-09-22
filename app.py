@@ -84,6 +84,7 @@ def load_all_data(spreadsheet_key):
         st.error("Tidak ada data REKAP yang berhasil dimuat."); return None, None, None
     rekap_df = pd.concat(rekap_list_df, ignore_index=True)
     rekap_df.columns = [str(c).strip().upper() for c in rekap_df.columns]
+    # PERHATIAN: Kolom KATEGORI tidak di-rename agar tetap 'KATEGORI'
     final_rename = {'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga', 'BRAND': 'Brand', 'STOK': 'Stok', 'TOKO': 'Toko', 'STATUS': 'Status'}
     rekap_df.rename(columns=final_rename, inplace=True)
 
@@ -296,27 +297,23 @@ with tab1:
 
     st.subheader(f"{section_counter}. Analisis Kategori Terlaris (Berdasarkan Omzet)")
     section_counter += 1
-    if not db_df.empty and 'KATEGORI' in db_df.columns and 'NAMA' in db_df.columns:
-        @st.cache_data
-        def fuzzy_merge_categories(_rekap_df, _database_df):
-            _rekap_df['Kategori'] = 'Lainnya'
-            db_unique = _database_df.drop_duplicates(subset=['NAMA'])
-            db_map = db_unique.set_index('NAMA')['KATEGORI']
-            for index, row in _rekap_df.iterrows():
-                if pd.notna(row['Nama Produk']):
-                    # rapidfuzz.process.extractOne
-                    match, score, _ = process.extractOne(row['Nama Produk'], db_map.index, scorer=fuzz.token_set_ratio)
-                    if score >= 80:
-                        _rekap_df.loc[index, 'Kategori'] = db_map[match]
-            return _rekap_df
+    # PERUBAHAN: Analisis Kategori langsung dari kolom yang ada, karena data DB KLIK sudah lengkap
+    if 'KATEGORI' in main_store_latest_overall.columns:
+        main_store_cat = main_store_latest_overall.copy()
+        # Mengisi nilai Kategori yang kosong (misal dari baris lama) atau kosong ('') dengan 'Lainnya'
+        main_store_cat['KATEGORI'] = main_store_cat['KATEGORI'].replace('', 'Lainnya').fillna('Lainnya')
         
-        main_store_cat = fuzzy_merge_categories(main_store_latest_overall.copy(), db_df)
-        category_sales = main_store_cat.groupby('Kategori')['Omzet'].sum().reset_index()
+        category_sales = main_store_cat.groupby('KATEGORI')['Omzet'].sum().reset_index()
         
         if not category_sales.empty:
             cat_sales_sorted = category_sales.sort_values('Omzet', ascending=False).head(10)
-            fig_cat = px.bar(cat_sales_sorted, x='Kategori', y='Omzet', title='Top 10 Kategori Berdasarkan Omzet', text_auto='.2s')
+            fig_cat = px.bar(cat_sales_sorted, x='KATEGORI', y='Omzet', title='Top 10 Kategori Berdasarkan Omzet', text_auto='.2s')
             st.plotly_chart(fig_cat, use_container_width=True)
+        else:
+            st.info("Tidak ada data omzet per kategori untuk ditampilkan.")
+    else:
+        st.warning("Kolom 'KATEGORI' tidak ditemukan pada data toko Anda. Analisis ini dilewati.")
+
 
     st.subheader(f"{section_counter}. Produk Terlaris")
     section_counter += 1
@@ -479,3 +476,4 @@ with tab6:
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)].copy()
                         new_products_df['Harga_fmt'] = new_products_df['Harga'].apply(lambda x: f"Rp {int(x):,.0f}")
                         st.dataframe(new_products_df[['Nama Produk', 'Harga_fmt', 'Stok', 'Brand']].rename(columns={'Harga_fmt':'Harga'}), use_container_width=True, hide_index=True)
+
