@@ -297,10 +297,9 @@ with tab1:
 
     st.subheader(f"{section_counter}. Analisis Kategori Terlaris (Berdasarkan Omzet)")
     section_counter += 1
-    # PERUBAHAN: Analisis Kategori langsung dari kolom yang ada, karena data DB KLIK sudah lengkap
+    # PERUBAHAN: Analisis Kategori langsung dari kolom yang ada
     if 'KATEGORI' in main_store_latest_overall.columns:
         main_store_cat = main_store_latest_overall.copy()
-        # Mengisi nilai Kategori yang kosong (misal dari baris lama) atau kosong ('') dengan 'Lainnya'
         main_store_cat['KATEGORI'] = main_store_cat['KATEGORI'].replace('', 'Lainnya').fillna('Lainnya')
         
         category_sales = main_store_cat.groupby('KATEGORI')['Omzet'].sum().reset_index()
@@ -309,6 +308,32 @@ with tab1:
             cat_sales_sorted = category_sales.sort_values('Omzet', ascending=False).head(10)
             fig_cat = px.bar(cat_sales_sorted, x='KATEGORI', y='Omzet', title='Top 10 Kategori Berdasarkan Omzet', text_auto='.2s')
             st.plotly_chart(fig_cat, use_container_width=True)
+
+            # --- PENAMBAHAN KODE UNTUK TABEL PRODUK PER KATEGORI ---
+            st.markdown("---")
+            st.subheader("Lihat Produk Terlaris per Kategori")
+            
+            category_list = category_sales.sort_values('Omzet', ascending=False)['KATEGORI'].tolist()
+            
+            selected_category = st.selectbox(
+                "Pilih Kategori untuk melihat produk terlaris:",
+                options=category_list
+            )
+
+            if selected_category:
+                products_in_category = main_store_cat[main_store_cat['KATEGORI'] == selected_category].copy()
+                top_products_in_category = products_in_category.sort_values('Terjual per Bulan', ascending=False)
+
+                if top_products_in_category.empty:
+                    st.info(f"Tidak ada produk terlaris untuk kategori '{selected_category}'.")
+                else:
+                    display_table = top_products_in_category[['Nama Produk', 'Harga', 'Terjual per Bulan', 'Omzet']].copy()
+                    display_table['Harga'] = display_table['Harga'].apply(lambda x: f"Rp {int(x):,.0f}")
+                    display_table['Omzet'] = display_table['Omzet'].apply(lambda x: f"Rp {int(x):,.0f}")
+                    
+                    st.dataframe(display_table, use_container_width=True, hide_index=True)
+            # --- AKHIR PENAMBAHAN KODE ---
+
         else:
             st.info("Tidak ada data omzet per kategori untuk ditampilkan.")
     else:
