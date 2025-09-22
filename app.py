@@ -327,7 +327,13 @@ with tab2:
             product_info_list = main_store_latest_overall[main_store_latest_overall['Nama Produk'] == selected_product]
             if not product_info_list.empty:
                 product_info = product_info_list.iloc[0]
-                st.metric(f"Harga di {my_store_name}", f"Rp {int(product_info['Harga']):,}")
+                my_price = product_info['Harga']
+
+                # Memeriksa apakah harga produk saya valid sebelum ditampilkan
+                if pd.notna(my_price):
+                    st.metric(f"Harga di {my_store_name}", f"Rp {int(my_price):,}")
+                else:
+                    st.metric(f"Harga di {my_store_name}", "Harga tidak tersedia")
                 st.divider()
 
                 matches_for_product = matches_df[
@@ -340,13 +346,26 @@ with tab2:
                     st.warning("Tidak ditemukan kecocokan di 'HASIL_MATCHING' dengan filter akurasi Anda.")
                 else:
                     for _, match in matches_for_product.iterrows():
-                        price_diff = int(match['Harga Kompetitor']) - int(product_info['Harga'])
-                        delta_txt = f"Rp {price_diff:,} {'(Lebih Mahal)' if price_diff > 0 else '(Lebih Murah)' if price_diff < 0 else ''}"
+                        competitor_price = match['Harga Kompetitor']
+                        
+                        # Menyiapkan nilai default untuk ditampilkan jika ada data harga yang kosong
+                        delta_txt = "N/A"
+                        competitor_price_display = "Harga tidak tersedia"
+                        
+                        # Hanya hitung selisih jika kedua harga valid
+                        if pd.notna(my_price) and pd.notna(competitor_price):
+                            price_diff = int(competitor_price) - int(my_price)
+                            delta_txt = f"Rp {price_diff:,} {'(Lebih Mahal)' if price_diff > 0 else '(Lebih Murah)' if price_diff < 0 else ''}"
+
+                        # Format harga kompetitor jika valid
+                        if pd.notna(competitor_price):
+                            competitor_price_display = f"Rp {int(competitor_price):,}"
+
                         with st.container(border=True):
                             st.markdown(f"**{match['Toko Kompetitor']}** (Kemiripan: {int(match['Skor Kemiripan'])}%)")
                             st.markdown(f"*{match['Produk Kompetitor']}*")
                             c1, c2 = st.columns(2)
-                            c1.metric("Harga Kompetitor", f"Rp {int(match['Harga Kompetitor']):,}", delta=delta_txt)
+                            c1.metric("Harga Kompetitor", competitor_price_display, delta=delta_txt)
                             update_date = pd.to_datetime(match['Tanggal_Update']).strftime('%d %b %Y') if 'Tanggal_Update' in match and pd.notna(match['Tanggal_Update']) else 'N/A'
                             c2.metric("Tanggal Update", update_date)
 
@@ -423,4 +442,5 @@ with tab6:
                         new_products_df = df_filtered[(df_filtered['Nama Produk'].isin(new_products)) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)].copy()
                         new_products_df['Harga'] = new_products_df['Harga'].apply(lambda x: f"Rp {int(x):,.0f}")
                         st.dataframe(new_products_df[['Nama Produk', 'Harga', 'Stok', 'Brand']].drop_duplicates(), hide_index=True)
+
 
