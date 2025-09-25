@@ -1,8 +1,8 @@
 # ===================================================================================
-#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI 6.0 (INTEGRASI GOOGLE SHEETS)
+#  DASHBOARD ANALISIS PENJualan & KOMPETITOR - VERSI 6.1 (FIX KONEKSI G-SHEETS)
 #  Dibuat oleh: Firman & Asisten AI Gemini
-#  Versi ini memprioritaskan pengambilan data langsung dari Google Sheets
-#  dan memiliki fallback ke file CSV lokal jika terjadi kegagalan koneksi.
+#  Versi ini memperbaiki fungsi koneksi Google Sheets agar kompatibel
+#  dengan format multiline private key dari Streamlit secrets.
 # ===================================================================================
 
 import streamlit as st
@@ -18,7 +18,7 @@ import numpy as np # Diperlukan untuk penanganan numerik
 # ===============================
 # KONFIGURASI HALAMAN
 # ===============================
-st.set_page_config(layout="wide", page_title="Dashboard Analisis v6.0")
+st.set_page_config(layout="wide", page_title="Dashboard Analisis v6.1")
 
 # ===============================
 # FUNGSI BANTUAN
@@ -44,9 +44,12 @@ def connect_to_gsheets():
     """
     Membuat koneksi aman ke Google Sheets menggunakan st.secrets.
     """
+    # PERBAIKAN: Menyesuaikan dengan format secrets.toml yang menggunakan gcp_private_key_raw
+    private_key = st.secrets["gcp_private_key_raw"].replace('\\n', '\n')
+    
     creds_dict = {
         "type": st.secrets["gcp_type"], "project_id": st.secrets["gcp_project_id"],
-        "private_key_id": st.secrets["gcp_private_key_id"], "private_key": st.secrets["gcp_private_key"],
+        "private_key_id": st.secrets["gcp_private_key_id"], "private_key": private_key,
         "client_email": st.secrets["gcp_client_email"], "client_id": st.secrets["gcp_client_id"],
         "auth_uri": st.secrets["gcp_auth_uri"], "token_uri": st.secrets["gcp_token_uri"],
         "auth_provider_x509_cert_url": st.secrets["gcp_auth_provider_x509_cert_url"],
