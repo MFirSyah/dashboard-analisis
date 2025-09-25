@@ -18,7 +18,7 @@ import numpy as np # Diperlukan untuk penanganan numerik
 # ===============================
 # KONFIGURASI HALAMAN
 # ===============================
-st.set_page_config(layout="wide", page_title="Dashboard Analisis v5.3")
+st.set_page_config(layout="wide", page_title="Dashboard Analisis")
 
 # ===============================
 # FUNGSI BANTUAN
@@ -557,4 +557,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
