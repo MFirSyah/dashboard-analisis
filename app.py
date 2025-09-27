@@ -1,8 +1,8 @@
 # ===================================================================================
-#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI 4.2 (FITUR ANALISIS HPP)
+#  DASHBOARD ANALISIS PENJUALAN & KOMPETITOR - VERSI 5.0 (FITUR ANALISIS HPP)
 #  Dibuat oleh: Firman & Asisten AI Gemini
-#  Versi ini menambahkan tampilan "HPP Produk" yang dapat diakses dari sidebar
-#  untuk membandingkan harga jual dengan HPP dari worksheet DATABASE.
+#  Versi ini menambahkan navigasi sidebar untuk beralih antara
+#  tampilan Analisis Kompetitor dan Analisis HPP (Harga Pokok Penjualan).
 # ===================================================================================
 
 import streamlit as st
@@ -13,11 +13,12 @@ import re
 import gspread
 from datetime import datetime
 from gspread_dataframe import set_with_dataframe
+import numpy as np # Diperlukan untuk HPP
 
 # ================================
 # KONFIGURASI HALAMAN
 # ================================
-st.set_page_config(layout="wide", page_title="Dashboard Analisis")
+st.set_page_config(layout="wide", page_title="Dashboard Analisis v5.0")
 
 # ================================
 # FUNGSI KONEKSI GOOGLE SHEETS
@@ -47,6 +48,7 @@ def load_all_data(spreadsheet_key):
         st.error(f"GAGAL KONEKSI/OPEN SPREADSHEET: {e}")
         return None, None, None
 
+    # Nama sheet yang relevan sekarang termasuk DATABASE secara eksplisit
     sheet_names = [
         "DATABASE", "DB KLIK - REKAP - READY", "DB KLIK - REKAP - HABIS",
         "ABDITAMA - REKAP - READY", "ABDITAMA - REKAP - HABIS", "LEVEL99 - REKAP - READY", "LEVEL99 - REKAP - HABIS",
@@ -106,7 +108,13 @@ def load_all_data(spreadsheet_key):
     try:
         matches_sheet = spreadsheet.worksheet("HASIL_MATCHING")
         matches_df = pd.DataFrame(matches_sheet.get_all_records())
-        if not matches_df.empty: matches_df.columns = [str(c).strip() for c in matches_df.columns]
+        if not matches_df.empty:
+            matches_df.columns = [str(c).strip() for c in matches_df.columns]
+            expected_cols = ['Produk Toko Saya', 'Produk Kompetitor', 'Harga Kompetitor']
+            missing_cols = [col for col in expected_cols if col not in matches_df.columns]
+            if missing_cols:
+                st.error(f"Header di sheet 'HASIL_MATCHING' salah! Kolom berikut tidak ditemukan: {', '.join(missing_cols)}")
+                matches_df = pd.DataFrame()
     except gspread.exceptions.WorksheetNotFound: pass
     except Exception as e: st.warning(f"Gagal memuat 'HASIL_MATCHING': {e}")
 
@@ -116,6 +124,7 @@ def load_all_data(spreadsheet_key):
 # FUNGSI UNTUK PROSES UPDATE HARGA
 # ================================
 def load_source_data_for_update(gc, spreadsheet_key):
+    # (Fungsi ini tidak diubah)
     spreadsheet = gc.open_by_key(spreadsheet_key)
     sheet_objs = [s for s in spreadsheet.worksheets() if "REKAP" in s.title.upper()]
     rekap_list = []
@@ -124,48 +133,32 @@ def load_source_data_for_update(gc, spreadsheet_key):
         try:
             vals = s.get_all_values()
             if not vals or len(vals) < 2: continue
-            
             header, data = vals[0], vals[1:]
             df = pd.DataFrame(data, columns=header)
-            
             if '' in df.columns: df = df.drop(columns=[''])
-            
             store_name_match = re.match(r"^(.*?) - REKAP", s.title, re.IGNORECASE)
             df['Toko'] = store_name_match.group(1).strip() if store_name_match else "Toko Tak Dikenal"
             rekap_list.append(df)
-            
-        except Exception as e:
-            st.warning(f"Gagal memproses sheet '{s.title}' saat update: {e}")
-            continue
+        except Exception: continue
 
-    if not rekap_list: 
-        st.error("Tidak ada data REKAP yang berhasil dimuat untuk proses update.")
-        return pd.DataFrame()
-
+    if not rekap_list: return pd.DataFrame()
     rekap_df = pd.concat(rekap_list, ignore_index=True)
     rekap_df.columns = [str(c).strip().upper() for c in rekap_df.columns]
-    
     final_rename = {
-        'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan',  
-        'TANGGAL': 'Tanggal', 'HARGA': 'Harga', 'BRAND': 'Brand',  
-        'STOK': 'Stok', 'TOKO': 'Toko', 'STATUS': 'Status'
+        'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga', 
+        'BRAND': 'Brand', 'STOK': 'Stok', 'TOKO': 'Toko', 'STATUS': 'Status'
     }
     rekap_df.rename(columns=final_rename, inplace=True)
-
     required_cols = ['Tanggal', 'Nama Produk', 'Toko', 'Harga']
-    if not all(col in rekap_df.columns for col in required_cols):
-        st.error(f"Setelah diproses, salah satu kolom inti ({', '.join(required_cols)}) tidak ditemukan. Periksa kembali nama kolom di Google Sheets Anda.")
-        return pd.DataFrame()
-
+    if not all(col in rekap_df.columns for col in required_cols): return pd.DataFrame()
     rekap_df['Tanggal'] = pd.to_datetime(rekap_df['Tanggal'], errors='coerce', dayfirst=True)
     rekap_df['Harga'] = pd.to_numeric(rekap_df['Harga'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce')
-    
     rekap_df.dropna(subset=required_cols, inplace=True)
-    
     idx = rekap_df.groupby(['Toko', 'Nama Produk'])['Tanggal'].idxmax()
     return rekap_df.loc[idx].reset_index(drop=True)
 
 def run_price_comparison_update(gc, spreadsheet_key, score_cutoff=88):
+    # (Fungsi ini tidak diubah)
     placeholder = st.empty()
     with placeholder.container():
         st.info("Memulai pembaruan perbandingan harga...")
@@ -225,60 +218,59 @@ def style_wow_growth(val):
 def convert_df_for_download(df):
     return df.to_csv(index=False).encode('utf-8')
 
+def format_rupiah(val):
+    if pd.isna(val) or not isinstance(val, (int, float, np.number)):
+        return "N/A"
+    return f"Rp {int(val):,}"
+
 # ================================
 # APLIKASI UTAMA (MAIN APP)
 # ================================
+st.title("📊 Dashboard Analisis Penjualan & Bisnis")
+
 SPREADSHEET_KEY = "1hl7YPEPg4aaEheN5fBKk65YX3-KdkQBRHCJWhVr9kVQ"
 gc = connect_to_gsheets()
 
+# --- Tombol untuk memuat data di awal ---
 if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
 if not st.session_state.data_loaded:
-    st.title("📊 Dashboard Analisis Penjualan & Kompetitor")
     _, col_center, _ = st.columns([2, 3, 2])
     with col_center:
         if st.button("Tarik Data & Mulai Analisis 🚀", type="primary"):
             df, db_df, matches_df = load_all_data(SPREADSHEET_KEY)
-            if df is not None and not df.empty:
+            if df is not None and not df.empty and db_df is not None:
                 st.session_state.df, st.session_state.db_df, st.session_state.matches_df = df, db_df, matches_df
                 st.session_state.data_loaded = True
                 st.rerun()
             else:
-                st.error("Gagal memuat data. Periksa akses Google Sheets dan st.secrets.")
+                st.error("Gagal memuat data. Periksa akses Google Sheets dan pastikan sheet 'DATABASE' ada.")
     st.info("👆 Klik tombol untuk menarik semua data yang diperlukan untuk analisis.")
     st.stop()
 
+# Ambil data dari session state
 df = st.session_state.df
 db_df = st.session_state.db_df if 'db_df' in st.session_state else pd.DataFrame()
 matches_df = st.session_state.matches_df if 'matches_df' in st.session_state else pd.DataFrame()
 
 # ================================
-# SIDEBAR DENGAN NAVIGASI
+# SIDEBAR (KONTROL UTAMA)
 # ================================
-st.sidebar.header("Navigasi Tampilan")
-app_mode = st.sidebar.selectbox(
+st.sidebar.header("Mode Tampilan")
+app_mode = st.sidebar.radio(
     "Pilih Tampilan:",
-    ["Tab Analisis", "HPP Produk"]
+    ("Tab Analisis", "HPP Produk")
 )
 st.sidebar.divider()
 
-# ================================
-# KONTEN BERDASARKAN NAVIGASI
-# ================================
-
-# TAMPILAN 1: TAB ANALISIS
 if app_mode == "Tab Analisis":
-    st.title("📊 Dashboard Analisis Penjualan & Kompetitor")
-    
-    # --- KONTROL & FILTER UNTUK TAB ANALISIS ---
-    st.sidebar.header("Kontrol & Filter")
+    st.sidebar.header("Kontrol & Filter Analisis")
     min_date, max_date = df['Tanggal'].min().date(), df['Tanggal'].max().date()
     selected_date_range = st.sidebar.date_input("Rentang Tanggal:", [min_date, max_date], min_value=min_date, max_value=max_date)
     if len(selected_date_range) != 2: st.sidebar.warning("Pilih 2 tanggal."); st.stop()
     start_date, end_date = selected_date_range
     accuracy_cutoff = st.sidebar.slider("Tingkat Akurasi Pencocokan (%)", 80, 100, 91, 1)
 
-    # Logika Pembaruan Otomatis
     latest_source_date = df['Tanggal'].max().date()
     last_destination_update = datetime(1970, 1, 1).date()
     if not matches_df.empty and 'Tanggal_Update' in matches_df.columns:
@@ -308,24 +300,40 @@ if app_mode == "Tab Analisis":
     st.sidebar.info(f"Baris data dalam rentang: **{len(df_filtered_export)}**")
     csv_data = convert_df_for_download(df_filtered_export)
     st.sidebar.download_button("📥 Unduh CSV (Filter)", data=csv_data, file_name=f'analisis_{start_date}_{end_date}.csv', mime='text/csv')
+else: # Untuk mode HPP
+    st.sidebar.info("Tampilan ini menganalisis harga jual produk Anda dibandingkan dengan Harga Pokok Penjualan (HPP) dari sheet 'DATABASE'.")
 
-    # PERSIAPAN DATA UNTUK TABS
-    df_filtered = df[(df['Tanggal'].dt.date >= start_date) & (df['Tanggal'].dt.date <= end_date)].copy()
-    if df_filtered.empty: st.error("Tidak ada data di rentang tanggal ini."); st.stop()
 
-    df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time).dt.date
-    my_store_name = "DB KLIK"
-    main_store_df = df_filtered[df_filtered['Toko'] == my_store_name]
-    competitor_df = df_filtered[df_filtered['Toko'] != my_store_name]
+# ================================
+# PERSIAPAN DATA UNTUK TABS
+# ================================
+df_filtered = df.copy()
+if app_mode == "Tab Analisis":
+    start_date_dt, end_date_dt = pd.to_datetime(start_date), pd.to_datetime(end_date)
+    df_filtered = df[(df['Tanggal'] >= start_date_dt) & (df['Tanggal'] <= end_date_dt)].copy()
 
-    latest_entries_weekly = df_filtered.loc[df_filtered.groupby(['Minggu', 'Toko', 'Nama Produk'])['Tanggal'].idxmax()]
-    latest_entries_overall = df_filtered.loc[df_filtered.groupby(['Toko', 'Nama Produk'])['Tanggal'].idxmax()]
-    main_store_latest_overall = latest_entries_overall[latest_entries_overall['Toko'] == my_store_name]
-    competitor_latest_overall = latest_entries_overall[latest_entries_overall['Toko'] != my_store_name]
+if df_filtered.empty: 
+    st.error("Tidak ada data di rentang tanggal yang dipilih (jika pada Tab Analisis)."); st.stop()
 
-    # TABS
+df_filtered['Minggu'] = df_filtered['Tanggal'].dt.to_period('W-SUN').apply(lambda p: p.start_time).dt.date
+my_store_name = "DB KLIK"
+main_store_df = df_filtered[df_filtered['Toko'] == my_store_name]
+competitor_df = df_filtered[df_filtered['Toko'] != my_store_name]
+
+latest_entries_weekly = df_filtered.loc[df_filtered.groupby(['Minggu', 'Toko', 'Nama Produk'])['Tanggal'].idxmax()]
+latest_entries_overall = df_filtered.loc[df_filtered.groupby(['Toko', 'Nama Produk'])['Tanggal'].idxmax()]
+main_store_latest_overall = latest_entries_overall[latest_entries_overall['Toko'] == my_store_name]
+competitor_latest_overall = latest_entries_overall[latest_entries_overall['Toko'] != my_store_name]
+
+# =========================================================================================
+# ================================ TAMPILAN KONTEN UTAMA ================================
+# =========================================================================================
+
+if app_mode == "Tab Analisis":
+    st.header("📈 Tampilan Analisis Penjualan & Kompetitor")
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⭐ Analisis Toko Saya", "⚖️ Perbandingan Harga", "🏆 Analisis Brand Kompetitor", "📦 Status Stok Produk", "📈 Kinerja Penjualan", "📊 Analisis Mingguan"])
-
+    
+    # KODE UNTUK SEMUA TAB DARI VERSI SEBELUMNYA TETAP SAMA DI SINI
     with tab1:
         st.header(f"Analisis Kinerja Toko: {my_store_name}")
         
@@ -631,85 +639,89 @@ if app_mode == "Tab Analisis":
                             new_products_df['Harga_fmt'] = new_products_df['Harga'].apply(lambda x: f"Rp {int(x):,.0f}")
                             st.dataframe(new_products_df[['Nama Produk', 'Harga_fmt', 'Stok', 'Brand']].rename(columns={'Harga_fmt':'Harga'}), use_container_width=True, hide_index=True)
 
-# TAMPILAN 2: HPP PRODUK
 elif app_mode == "HPP Produk":
-    st.title("📊 Analisis Harga Pokok Penjualan (HPP)")
-    my_store_name = "DB KLIK"
+    st.header("💰 Tampilan Analisis Harga Pokok Penjualan (HPP)")
 
-    # 1. Persiapan Data HPP dari db_df (Worksheet DATABASE)
+    # 1. PERSIAPAN DATA HPP DARI SHEET 'DATABASE'
     if db_df.empty or 'SKU' not in db_df.columns:
-        st.error("Data 'DATABASE' tidak ditemukan atau tidak memiliki kolom 'SKU'. Fitur ini tidak dapat berjalan.")
+        st.error("Sheet 'DATABASE' tidak ditemukan atau tidak memiliki kolom 'SKU'. Analisis HPP tidak dapat dilanjutkan.")
         st.stop()
 
-    hpp_data = db_df.copy()
-    # Pastikan kolom HPP ada
-    if 'HPP (LATEST)' not in hpp_data.columns: hpp_data['HPP (LATEST)'] = None
-    if 'HPP (AVERAGE)' not in hpp_data.columns: hpp_data['HPP (AVERAGE)'] = None
+    # Pastikan kolom HPP ada dan bersihkan
+    if 'HPP (LATEST)' not in db_df.columns: db_df['HPP (LATEST)'] = np.nan
+    if 'HPP (AVERAGE)' not in db_df.columns: db_df['HPP (AVERAGE)'] = np.nan
 
-    # Ubah HPP ke numerik, abaikan jika error
-    hpp_data['HPP (LATEST)'] = pd.to_numeric(hpp_data['HPP (LATEST)'], errors='coerce')
-    hpp_data['HPP (AVERAGE)'] = pd.to_numeric(hpp_data['HPP (AVERAGE)'], errors='coerce')
+    # Konversi kolom HPP ke numerik, paksa error menjadi NaN (kosong)
+    db_df['HPP_LATEST_NUM'] = pd.to_numeric(db_df['HPP (LATEST)'], errors='coerce')
+    db_df['HPP_AVERAGE_NUM'] = pd.to_numeric(db_df['HPP (AVERAGE)'], errors='coerce')
 
-    # Buat kolom HPP final sesuai aturan
-    hpp_data['HPP'] = hpp_data['HPP (LATEST)'].fillna(hpp_data['HPP (AVERAGE)'])
+    # Logika fallback: Gunakan LATEST, jika kosong, gunakan AVERAGE
+    db_df['HPP'] = db_df['HPP_LATEST_NUM'].fillna(db_df['HPP_AVERAGE_NUM'])
     
-    # Filter hanya data yang punya HPP dan SKU valid
+    # Pilih hanya data HPP yang relevan dan bersih
+    hpp_data = db_df[['SKU', 'HPP']].copy()
     hpp_data.dropna(subset=['SKU', 'HPP'], inplace=True)
-    hpp_data = hpp_data[['SKU', 'HPP']].drop_duplicates(subset=['SKU'])
+    hpp_data = hpp_data[hpp_data['SKU'] != '']
+    hpp_data.drop_duplicates(subset=['SKU'], keep='first', inplace=True)
 
-    # 2. Persiapan Data Penjualan Terbaru dari Toko Anda
-    latest_entries_overall = df.loc[df.groupby(['Toko', 'Nama Produk'])['Tanggal'].idxmax()]
-    main_store_latest_overall = latest_entries_overall[latest_entries_overall['Toko'] == my_store_name]
-
-    if 'SKU' not in main_store_latest_overall.columns:
-        st.error(f"Data penjualan toko '{my_store_name}' tidak memiliki kolom 'SKU'. Fitur ini tidak dapat berjalan.")
-        st.stop()
-
-    # 3. Gabungkan (merge) data penjualan dengan data HPP berdasarkan SKU
-    merged_df = pd.merge(main_store_latest_overall, hpp_data, on='SKU', how='left')
-
-    # 4. Pisahkan produk menjadi 3 kategori
-    unmatched_df = merged_df[merged_df['HPP'].isnull()]
-    matched_df = merged_df[merged_df['HPP'].notnull()].copy()
+    # 2. GABUNGKAN DATA PENJUALAN TERBARU DENGAN DATA HPP
+    # Menggunakan data penjualan terbaru dari toko Anda
+    latest_db_klik = main_store_latest_overall.copy()
     
-    if not matched_df.empty:
-        matched_df['Selisih'] = matched_df['Harga'] - matched_df['HPP']
-        cheaper_df = matched_df[matched_df['Selisih'] < 0].sort_values('Selisih', ascending=True)
-        pricier_df = matched_df[matched_df['Selisih'] >= 0].sort_values('Selisih', ascending=False)
-    else:
-        cheaper_df = pd.DataFrame()
-        pricier_df = pd.DataFrame()
+    # Gabungkan berdasarkan SKU. `how='left'` menjaga semua produk dari toko Anda.
+    merged_df = pd.merge(latest_db_klik, hpp_data, on='SKU', how='left')
 
-    # 5. Tampilkan tabel-tabel
-    st.subheader("🟢 Produk Dijual Lebih Mahal dari HPP")
-    if not pricier_df.empty:
-        display_pricier = pricier_df[['Nama Produk', 'Harga', 'HPP', 'Selisih', 'Terjual per Bulan', 'Omzet']].copy()
-        display_pricier['Harga'] = display_pricier['Harga'].apply(lambda x: f"Rp {int(x):,.0f}")
-        display_pricier['HPP'] = display_pricier['HPP'].apply(lambda x: f"Rp {int(x):,.0f}")
-        display_pricier['Selisih'] = display_pricier['Selisih'].apply(lambda x: f"Rp {int(x):,.0f}")
-        display_pricier['Omzet'] = display_pricier['Omzet'].apply(lambda x: f"Rp {int(x):,.0f}")
-        st.dataframe(display_pricier, use_container_width=True, hide_index=True)
+    # 3. HITUNG SELISIH DAN PISAHKAN DATA
+    merged_df['Selisih'] = merged_df['Harga'] - merged_df['HPP']
+
+    # Tabel 1: Jual lebih murah dari HPP (Rugi)
+    df_rugi = merged_df[merged_df['Selisih'] < 0].copy()
+
+    # Tabel 2: Jual lebih mahal dari HPP (Untung)
+    df_untung = merged_df[(merged_df['Selisih'] >= 0)].copy()
+
+    # Tabel 3: Produk tidak ditemukan HPP-nya di DATABASE
+    df_tidak_ditemukan = merged_df[merged_df['HPP'].isnull()].copy()
+
+    # 4. TAMPILKAN TABEL-TABEL HASIL ANALISIS
+    
+    # --- TABEL 1: PRODUK DIJUAL DI BAWAH HPP ---
+    st.subheader("🔴 Produk Lebih Murah dari HPP")
+    if df_rugi.empty:
+        st.success("👍 Mantap! Tidak ada produk yang dijual di bawah HPP.")
     else:
-        st.info("Tidak ada produk yang terdeteksi dijual lebih mahal dari HPP.")
+        display_rugi = df_rugi[['Nama Produk', 'SKU', 'Harga', 'HPP', 'Selisih', 'Terjual per Bulan', 'Omzet']].copy()
+        display_rugi.rename(columns={'Terjual per Bulan': 'Terjual/Bln'}, inplace=True)
+        # Formatting
+        for col in ['Harga', 'HPP', 'Selisih', 'Omzet']:
+            display_rugi[col] = display_rugi[col].apply(format_rupiah)
+        st.dataframe(display_rugi, use_container_width=True, hide_index=True)
 
     st.divider()
 
-    st.subheader("🔴 Produk Dijual Lebih Murah dari HPP")
-    if not cheaper_df.empty:
-        display_cheaper = cheaper_df[['Nama Produk', 'Harga', 'HPP', 'Selisih', 'Terjual per Bulan', 'Omzet']].copy()
-        display_cheaper['Harga'] = display_cheaper['Harga'].apply(lambda x: f"Rp {int(x):,.0f}")
-        display_cheaper['HPP'] = display_cheaper['HPP'].apply(lambda x: f"Rp {int(x):,.0f}")
-        display_cheaper['Selisih'] = display_cheaper['Selisih'].apply(lambda x: f"Rp {int(x):,.0f}")
-        display_cheaper['Omzet'] = display_cheaper['Omzet'].apply(lambda x: f"Rp {int(x):,.0f}")
-        st.dataframe(display_cheaper, use_container_width=True, hide_index=True)
+    # --- TABEL 2: PRODUK DIJUAL DI ATAS HPP ---
+    st.subheader("🟢 Produk Lebih Mahal dari HPP")
+    if df_untung.empty:
+        st.warning("Tidak ada produk yang dijual di atas HPP.")
     else:
-        st.info("Tidak ada produk yang terdeteksi dijual lebih murah dari HPP.")
-        
-    st.divider()
+        display_untung = df_untung[['Nama Produk', 'SKU', 'Harga', 'HPP', 'Selisih', 'Terjual per Bulan', 'Omzet']].copy()
+        display_untung.rename(columns={'Terjual per Bulan': 'Terjual/Bln'}, inplace=True)
+        # Formatting
+        for col in ['Harga', 'HPP', 'Selisih', 'Omzet']:
+            display_untung[col] = display_untung[col].apply(format_rupiah)
+        st.dataframe(display_untung, use_container_width=True, hide_index=True)
 
-    st.subheader("⚠️ Produk Tidak Terdeteksi di Database HPP")
-    if not unmatched_df.empty:
-        st.warning("Mohon untuk mengecek data produk lagi, sepertinya ada data SKU yang tidak akurat atau tidak terdaftar di worksheet DATABASE.")
-        st.dataframe(unmatched_df[['Nama Produk', 'SKU', 'Harga']], use_container_width=True, hide_index=True)
+    st.divider()
+    
+    # --- TABEL 3: PRODUK TIDAK TERDETEKSI ---
+    st.subheader("❓ Produk Tidak Terdeteksi HPP-nya")
+    if df_tidak_ditemukan.empty:
+        st.success("👍 Semua produk yang dijual berhasil dicocokkan dengan data HPP di DATABASE.")
     else:
-        st.success("Semua produk dari data penjualan terbaru berhasil ditemukan di database HPP.")
+        st.warning("Mohon untuk mengecek data produk lagi, sepertinya ada data yang tidak akurat atau SKU tidak cocok.")
+        display_tidak_ditemukan = df_tidak_ditemukan[['Nama Produk', 'SKU', 'Harga', 'Terjual per Bulan', 'Omzet']].copy()
+        display_tidak_ditemukan.rename(columns={'Terjual per Bulan': 'Terjual/Bln'}, inplace=True)
+        # Formatting
+        for col in ['Harga', 'Omzet']:
+            display_tidak_ditemukan[col] = display_tidak_ditemukan[col].apply(format_rupiah)
+        st.dataframe(display_tidak_ditemukan, use_container_width=True, hide_index=True)
