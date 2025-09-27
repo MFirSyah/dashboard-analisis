@@ -118,30 +118,65 @@ def load_all_data(spreadsheet_key):
     return rekap_df.sort_values('Tanggal'), database_df, matches_df
 
 # ================================
-# FUNGSI UNTUK PROSES UPDATE HARGA (Dari uji_coba)
+# FUNGSI UNTUK PROSES UPDATE HARGA (DISAMAKAN DENGAN LOGIKA TAB)
 # ================================
 def load_source_data_for_update(gc, spreadsheet_key):
     spreadsheet = gc.open_by_key(spreadsheet_key)
     sheet_objs = [s for s in spreadsheet.worksheets() if "REKAP" in s.title.upper()]
     rekap_list = []
+    
     for s in sheet_objs:
         try:
             vals = s.get_all_values()
             if not vals or len(vals) < 2: continue
+            
             header, data = vals[0], vals[1:]
             df = pd.DataFrame(data, columns=header)
+            
             if '' in df.columns: df = df.drop(columns=[''])
+            
             store_name_match = re.match(r"^(.*?) - REKAP", s.title, re.IGNORECASE)
             df['Toko'] = store_name_match.group(1).strip() if store_name_match else "Toko Tak Dikenal"
             rekap_list.append(df)
-        except Exception: continue
-    if not rekap_list: return pd.DataFrame()
+            
+        except Exception as e:
+            st.warning(f"Gagal memproses sheet '{s.title}' saat update: {e}")
+            continue
+
+    if not rekap_list: 
+        st.error("Tidak ada data REKAP yang berhasil dimuat untuk proses update.")
+        return pd.DataFrame()
+
+    # --- BAGIAN YANG DISAMAKAN DENGAN FUNGSI LOAD_ALL_DATA ---
     rekap_df = pd.concat(rekap_list, ignore_index=True)
+    
+    # 1. Standarkan semua nama kolom ke huruf besar (lebih aman)
     rekap_df.columns = [str(c).strip().upper() for c in rekap_df.columns]
-    rekap_df.rename(columns={'NAMA': 'Nama Produk', 'TANGGAL': 'Tanggal', 'HARGA': 'Harga'}, inplace=True)
+    
+    # 2. Gunakan dictionary rename yang sama persis seperti di load_all_data
+    #    Ini adalah kunci utamanya.
+    final_rename = {
+        'NAMA': 'Nama Produk', 'TERJUAL/BLN': 'Terjual per Bulan',  
+        'TANGGAL': 'Tanggal', 'HARGA': 'Harga', 'BRAND': 'Brand',  
+        'STOK': 'Stok', 'TOKO': 'Toko', 'STATUS': 'Status'
+    }
+    rekap_df.rename(columns=final_rename, inplace=True)
+    # --- AKHIR BAGIAN YANG DISAMAKAN ---
+
+    # Cek apakah kolom yang dibutuhkan ada SETELAH di-rename
+    required_cols = ['Tanggal', 'Nama Produk', 'Toko', 'Harga']
+    if not all(col in rekap_df.columns for col in required_cols):
+        st.error(f"Setelah diproses, salah satu kolom inti ({', '.join(required_cols)}) tidak ditemukan. Periksa kembali nama kolom di Google Sheets Anda.")
+        return pd.DataFrame()
+
+    # Lakukan konversi tipe data
     rekap_df['Tanggal'] = pd.to_datetime(rekap_df['Tanggal'], errors='coerce', dayfirst=True)
     rekap_df['Harga'] = pd.to_numeric(rekap_df['Harga'].astype(str).str.replace(r'[^\d]', '', regex=True), errors='coerce')
-    rekap_df.dropna(subset=['Tanggal', 'Nama Produk', 'Toko', 'Harga'], inplace=True)
+    
+    # Sekarang proses dropna DIJAMIN aman dari KeyError
+    rekap_df.dropna(subset=required_cols, inplace=True)
+    
+    # Lanjutkan sisa logika fungsi seperti semula
     idx = rekap_df.groupby(['Toko', 'Nama Produk'])['Tanggal'].idxmax()
     return rekap_df.loc[idx].reset_index(drop=True)
 
@@ -608,3 +643,4 @@ with tab6:
                         new_products_df = df_filtered[df_filtered['Nama Produk'].isin(new_products) & (df_filtered['Toko'] == store) & (df_filtered['Minggu'] == week_after)].copy()
                         new_products_df['Harga_fmt'] = new_products_df['Harga'].apply(lambda x: f"Rp {int(x):,.0f}")
                         st.dataframe(new_products_df[['Nama Produk', 'Harga_fmt', 'Stok', 'Brand']].rename(columns={'Harga_fmt':'Harga'}), use_container_width=True, hide_index=True)
+
