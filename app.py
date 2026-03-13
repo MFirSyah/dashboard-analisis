@@ -228,7 +228,7 @@ def format_rupiah(val):
 # ================================
 st.title("📊 Dashboard Analisis Penjualan & Bisnis")
 
-SPREADSHEET_KEY = "1hl7YPEPg4aaEheN5fBKk65YX3-KdkQBRHCJWhVr9kVQ"
+SPREADSHEET_KEY = "1hl7YPEPg4aaEheN5fBKk65YX3"
 gc = connect_to_gsheets()
 
 # --- Tombol untuk memuat data di awal ---
@@ -725,4 +725,5 @@ elif app_mode == "HPP Produk":
         for col in ['Harga', 'Omzet']:
             display_tidak_ditemukan[col] = display_tidak_ditemukan[col].apply(format_rupiah)
         st.dataframe(display_tidak_ditemukan, use_container_width=True, hide_index=True)
+
 
